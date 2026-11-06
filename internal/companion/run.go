@@ -98,7 +98,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		files[p] = &file{dirty: true, due: now}
 	}
 	if len(files) == 0 {
-		r.say("No PriceWatch data yet: it is uploaded when the game first saves it.")
+		r.Say("No PriceWatch data yet: it is uploaded when the game first saves it.")
 	}
 	if err := r.writeAddon(cfg, files); err != nil {
 		return err
@@ -121,7 +121,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				return err
 			}
 			if err := r.writeAddon(cfg, files); err != nil {
-				r.say("Can't write the data addon: %v", err)
+				r.Say("Can't write the data addon: %v", err)
 			}
 		}
 
@@ -161,11 +161,11 @@ func (r *Runner) upload(ctx context.Context, token config.Token, path string, f 
 	f.dirty = false
 	recording, err := readRecording(path)
 	if err != nil {
-		r.say("Can't read %s's PriceWatch data (%v). It is read again the next time the game saves it.", account, err)
+		r.Say("Can't read %s's PriceWatch data (%v). It is read again the next time the game saves it.", account, err)
 		return r.Store.Load()
 	}
 	if recording == nil {
-		r.say("Nothing recorded yet for %s.", account)
+		r.Say("Nothing recorded yet for %s.", account)
 		return r.record(token, path, nil, false)
 	}
 
@@ -175,7 +175,7 @@ func (r *Runner) upload(ctx context.Context, token config.Token, path string, f 
 	case err == nil:
 		f.failures = 0
 		f.notBefore = time.Time{}
-		r.say("Uploaded %s's PriceWatch data.", account)
+		r.Say("Uploaded %s's PriceWatch data.", account)
 		return r.record(token, path, res.UploadedUpTo, true)
 	case ctx.Err() != nil:
 		return config.Config{}, nil
@@ -184,18 +184,18 @@ func (r *Runner) upload(ctx context.Context, token config.Token, path string, f 
 	case errors.As(err, &rl):
 		f.dirty = true
 		*blockedUntil = r.Clock.Now().Add(rl.RetryAfter)
-		r.say("The server has had enough uploads for now: the next one is in %s.", roundWait(rl.RetryAfter))
+		r.Say("The server has had enough uploads for now: the next one is in %s.", roundWait(rl.RetryAfter))
 	case api.IsTemporary(err):
 		f.dirty = true
 		wait := firstBackoff << min(f.failures, 16)
 		wait = min(wait, maxBackoff)
 		f.failures++
 		f.notBefore = r.Clock.Now().Add(wait)
-		r.say("Couldn't upload %s's PriceWatch data (%v). Trying again in %s.", account, err, roundWait(wait))
+		r.Say("Couldn't upload %s's PriceWatch data (%v). Trying again in %s.", account, err, roundWait(wait))
 	case errors.Is(err, api.ErrTooLarge):
-		r.say("%s's PriceWatch data is too large to upload. It is tried again the next time the game saves it.", account)
+		r.Say("%s's PriceWatch data is too large to upload. It is tried again the next time the game saves it.", account)
 	default:
-		r.say("The server refused %s's PriceWatch data (%v). It is tried again the next time the game saves it.", account, err)
+		r.Say("The server refused %s's PriceWatch data (%v). It is tried again the next time the game saves it.", account, err)
 	}
 	return r.Store.Load()
 }
@@ -236,9 +236,9 @@ func (r *Runner) unlink(token config.Token) (config.Config, error) {
 		return config.Config{}, err
 	}
 	if _, err := addon.Write(r.Game, addon.State{Linked: false}); err != nil {
-		r.say("Can't write the data addon: %v", err)
+		r.Say("Can't write the data addon: %v", err)
 	}
-	r.say("This computer was unlinked on the website, so uploads have stopped. Run `companion link` to link it again.")
+	r.Say("This computer was unlinked on the website, so uploads have stopped. Run `companion link` to link it again.")
 	return config.Config{}, ErrUnlinked
 }
 
@@ -250,7 +250,7 @@ func (r *Runner) writeAddon(cfg config.Config, files map[string]*file) error {
 		return err
 	}
 	if created {
-		r.say("Wrote the PriceWatch_Companion addon into the game. The game only finds a new addon when it starts: if it's running, restart it (a /reload isn't enough).")
+		r.Say("Wrote the PriceWatch_Companion addon into the game. The game only finds a new addon when it starts: if it's running, restart it (a /reload isn't enough).")
 	}
 	return nil
 }
@@ -288,7 +288,8 @@ func readRecording(path string) (any, error) {
 	return db["recording"], nil
 }
 
-func (r *Runner) say(format string, args ...any) {
+// Say tells the player something, with the time.
+func (r *Runner) Say(format string, args ...any) {
 	fmt.Fprintf(r.Out, "%s  %s\n", r.Clock.Now().Local().Format("15:04:05"), fmt.Sprintf(format, args...))
 }
 
