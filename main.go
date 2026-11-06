@@ -209,6 +209,9 @@ func runCmd(args []string, stdout, stderr io.Writer) error {
 	if info, err := os.Stat(*game); err != nil || !info.IsDir() {
 		return fmt.Errorf("no game folder at %s: give it with --game", *game)
 	}
+	if _, err := wow.Files(*game); err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
