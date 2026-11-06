@@ -24,7 +24,7 @@ func accountsDir(game string) string { return filepath.Join(game, "WTF", "Accoun
 // Files returns every account's PriceWatch.lua in the install at game,
 // WTF/Account/*/SavedVariables/PriceWatch.lua, sorted.
 func Files(game string) ([]string, error) {
-	if info, err := os.Stat(accountsDir(game)); err != nil || !info.IsDir() {
+	if !isDir(accountsDir(game)) {
 		return nil, fmt.Errorf("no WTF/Account folder in %s: is it the game's folder, and has the game been played there?", game)
 	}
 	files, err := filepath.Glob(filepath.Join(accountsDir(game), "*", "SavedVariables", FileName))
@@ -44,95 +44,98 @@ func Account(file string) string {
 // written, until ctx is done. Accounts made after it starts are watched too.
 // Watching errors that don't stop it go to warn.
 func Watch(ctx context.Context, game string, warn func(error)) (<-chan string, error) {
-	w, err := fsnotify.NewWatcher()
+	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
-	root := accountsDir(game)
-	if err := w.Add(root); err != nil {
-		w.Close()
+	w := &watcher{fs: fw, root: accountsDir(game), out: make(chan string, 16), done: ctx.Done(), warn: warn}
+	if err := fw.Add(w.root); err != nil {
+		fw.Close()
 		return nil, err
 	}
-	out := make(chan string, 16)
-	send := func(path string) {
-		select {
-		case out <- path:
-		case <-ctx.Done():
-		}
-	}
-	// addAccount watches an account folder and its SavedVariables, and
-	// reports a PriceWatch.lua already there (made before it was watched).
-	addAccount := func(account string) {
-		if err := w.Add(account); err != nil {
-			warn(err)
-			return
-		}
-		sv := filepath.Join(account, "SavedVariables")
-		if info, err := os.Stat(sv); err == nil && info.IsDir() {
-			addSavedVariables(w, sv, warn, send)
-		}
-	}
-	entries, err := os.ReadDir(root)
+	entries, err := os.ReadDir(w.root)
 	if err != nil {
-		w.Close()
+		fw.Close()
 		return nil, err
 	}
 	for _, e := range entries {
 		if e.IsDir() {
-			if err := w.Add(filepath.Join(root, e.Name())); err != nil {
-				warn(err)
-			}
-			if sv := filepath.Join(root, e.Name(), "SavedVariables"); isDir(sv) {
-				if err := w.Add(sv); err != nil {
-					warn(err)
-				}
-			}
+			// The caller reads the files there at the start itself.
+			w.addAccount(filepath.Join(w.root, e.Name()), false)
 		}
 	}
-
-	go func() {
-		defer close(out)
-		defer w.Close()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case err, ok := <-w.Errors:
-				if !ok {
-					return
-				}
-				warn(err)
-			case ev, ok := <-w.Events:
-				if !ok {
-					return
-				}
-				dir := filepath.Dir(ev.Name)
-				switch {
-				case filepath.Base(ev.Name) == FileName && filepath.Base(dir) == "SavedVariables":
-					if ev.Has(fsnotify.Write) || ev.Has(fsnotify.Create) {
-						send(ev.Name)
-					}
-				case ev.Has(fsnotify.Create) && dir == root && isDir(ev.Name):
-					addAccount(ev.Name)
-				case ev.Has(fsnotify.Create) && filepath.Base(ev.Name) == "SavedVariables" && filepath.Dir(dir) == root && isDir(ev.Name):
-					addSavedVariables(w, ev.Name, warn, send)
-				}
-			}
-		}
-	}()
-	return out, nil
+	go w.run()
+	return w.out, nil
 }
 
-func addSavedVariables(w *fsnotify.Watcher, sv string, warn func(error), send func(string)) {
-	if err := w.Add(sv); err != nil {
-		warn(err)
+type watcher struct {
+	fs   *fsnotify.Watcher
+	root string // WTF/Account
+	out  chan string
+	done <-chan struct{}
+	warn func(error)
+}
+
+func (w *watcher) run() {
+	defer close(w.out)
+	defer w.fs.Close()
+	for {
+		select {
+		case <-w.done:
+			return
+		case err, ok := <-w.fs.Errors:
+			if !ok {
+				return
+			}
+			w.warn(err)
+		case ev, ok := <-w.fs.Events:
+			if !ok {
+				return
+			}
+			dir := filepath.Dir(ev.Name)
+			switch {
+			case filepath.Base(ev.Name) == FileName && filepath.Base(dir) == "SavedVariables":
+				if ev.Has(fsnotify.Write) || ev.Has(fsnotify.Create) {
+					w.send(ev.Name)
+				}
+			case ev.Has(fsnotify.Create) && dir == w.root && isDir(ev.Name):
+				w.addAccount(ev.Name, true)
+			case ev.Has(fsnotify.Create) && filepath.Base(ev.Name) == "SavedVariables" && filepath.Dir(dir) == w.root && isDir(ev.Name):
+				w.addSavedVariables(ev.Name, true)
+			}
+		}
+	}
+}
+
+func (w *watcher) send(path string) {
+	select {
+	case w.out <- path:
+	case <-w.done:
+	}
+}
+
+// addAccount watches an account folder and its SavedVariables. With report,
+// it reports a PriceWatch.lua already there, made before it was watched.
+func (w *watcher) addAccount(account string, report bool) {
+	if err := w.fs.Add(account); err != nil {
+		w.warn(err)
 		return
 	}
-	file := filepath.Join(sv, FileName)
-	if _, err := os.Stat(file); err == nil {
-		send(file)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		warn(err)
+	if savedVars := filepath.Join(account, "SavedVariables"); isDir(savedVars) {
+		w.addSavedVariables(savedVars, report)
+	}
+}
+
+func (w *watcher) addSavedVariables(savedVars string, report bool) {
+	if err := w.fs.Add(savedVars); err != nil {
+		w.warn(err)
+		return
+	}
+	file := filepath.Join(savedVars, FileName)
+	if _, err := os.Stat(file); err == nil && report {
+		w.send(file)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		w.warn(err)
 	}
 }
 

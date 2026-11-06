@@ -57,13 +57,13 @@ func (l *Linker) Link(ctx context.Context, name string) error {
 		case <-l.Clock.After(interval):
 		}
 		p, err := l.Client.Poll(ctx, link.Secret)
-		var rl *api.RateLimitedError
+		var limited *api.RateLimitedError
 		switch {
 		case err == nil:
 		case ctx.Err() != nil:
 			return ctx.Err()
-		case errors.As(err, &rl):
-			interval = max(interval, rl.RetryAfter)
+		case errors.As(err, &limited):
+			interval = max(interval, limited.RetryAfter)
 			continue
 		case api.IsTemporary(err):
 			continue
