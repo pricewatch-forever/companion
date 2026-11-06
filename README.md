@@ -13,7 +13,7 @@ The Companion is open source so you can check exactly what it does:
 - **It reads one file per WoW account:** the PriceWatch addon's saved data, `PriceWatch.lua`, in your game folder under `WTF/Account/<account>/SavedVariables/`. It never runs that file and never changes it.
 - **It writes one small addon of its own:** `PriceWatch_Companion`, in your game folder under `Interface/AddOns/`, which tells the PriceWatch addon that the Companion is linked and what it has already sent, so the addon can clear out what's been sent. It changes no other game file.
 - **It keeps its link to your account in its own settings file,** outside the game folder, readable only by you: on macOS, `~/Library/Application Support/PriceWatch Companion/config.json`.
-- **It sends your sessions to your PriceWatch Forever account only.** They're private to you and kept until you delete them. When linking, it also sends your computer's name, so the website can show you which computer is linked.
+- **It sends your sessions to your PriceWatch Forever account only.** They're private to you and kept until you delete them. When linking, it also sends your computer's name, so the website can show you which computer is linked, and with each request its own version number.
 - **It never talks to Blizzard** and holds no Blizzard keys.
 
 ## Build and run
