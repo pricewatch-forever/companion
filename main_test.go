@@ -131,3 +131,19 @@ func TestComputerNameFitsTheServersLimit(t *testing.T) {
 		t.Errorf("computer name %q", name)
 	}
 }
+
+func TestOnlyWebAddressesAreServersOrOpened(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"https://example.convex.site":  true,
+		"http://localhost:3000/link":   true,
+		"file:///etc/passwd":           false,
+		"javascript:alert(1)":          false,
+		"https://":                     false,
+		"example.convex.site":          false,
+		"x-apple.systempreferences:ab": false,
+	} {
+		if got := isWebAddress(addr); got != want {
+			t.Errorf("isWebAddress(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}

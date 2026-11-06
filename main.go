@@ -140,9 +140,14 @@ func store() (*config.Store, error) {
 	return config.NewStore(path), nil
 }
 
+// isWebAddress reports whether addr is an http or https address.
+func isWebAddress(addr string) bool {
+	u, err := url.Parse(addr)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+}
+
 func checkServer(s string) (string, error) {
-	u, err := url.Parse(s)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+	if !isWebAddress(s) {
 		return "", fmt.Errorf("--server %q isn't a web address", s)
 	}
 	return strings.TrimRight(s, "/"), nil
@@ -279,22 +284,17 @@ func computerName() string {
 	return name
 }
 
-// openBrowser opens a web page in the default browser. It opens only http
-// and https addresses.
+// openBrowser opens a web page in the default browser, on macOS. It opens
+// only http and https addresses. Elsewhere it fails, and link shows the
+// address instead.
 var openBrowser = func(page string) error {
-	u, err := url.Parse(page)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+	if !isWebAddress(page) {
 		return fmt.Errorf("not a web page: %q", page)
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", page)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", page)
-	default:
-		cmd = exec.Command("xdg-open", page)
+	if runtime.GOOS != "darwin" {
+		return errors.New("opening a browser is only done on macOS")
 	}
+	cmd := exec.Command("open", page)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
