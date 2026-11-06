@@ -19,10 +19,11 @@ A Go program players run beside World of Warcraft: Forever. It links to a PriceW
 - `internal/addon`: writes the data addon.
 - `internal/config`: the config file (mode 0600) that holds the device token.
 - `internal/wow`: finds and watches the game's files.
+- `internal/atomicfile`: replaces a file whole (the config file, the data addon).
 
 ## Rules
 
-- Never print or log the device token. `config.Token` prints as `[hidden]`; keep it that way.
+- Never print or log the device token. `api.Token` prints as `[hidden]`; keep the token in that type everywhere.
 - Touch no game file but `Interface/AddOns/PriceWatch_Companion/`. Tests use temp folders only.
 - Dependencies: the standard library and `fsnotify`. Ask before adding one.
 - `gofmt`, `go vet ./...` and `go test ./...` stay clean.
