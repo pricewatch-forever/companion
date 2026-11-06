@@ -45,7 +45,7 @@
     "kinds": {
       "start": {
         "meaning": "A login started the Session: the character, and the Market it trades in.",
-        "fields": ["kind", "time (0)", "server time", "name", "realm", "class (the client's file name, e.g. WARRIOR)", "race (the client's file name, e.g. Scourge)", "faction (Alliance or Horde)", "level", "Region (us, eu, kr, tw, cn or unknown)", "Ruleset (normal, pvp, rp, rp-pvp or hardcore)", "House (the faction's: alliance or horde, never neutral; nil if the faction is neither)", "money (the character's copper on hand, as the client's GetMoney gives it; nil if the client has no GetMoney)"]
+        "fields": ["kind", "time (0)", "server time", "name (the character's full name, both words: \"First Surname\"; the first name alone on a client that gives no surname)", "realm", "class (the client's file name, e.g. WARRIOR)", "race (the client's file name, e.g. Scourge)", "faction (Alliance or Horde)", "level", "Region (us, eu, kr, tw, cn or unknown)", "Ruleset (normal, pvp, rp, rp-pvp or hardcore)", "House (the faction's: alliance or horde, never neutral; nil if the faction is neither)", "money (the character's copper on hand, as the client's GetMoney gives it; nil if the client has no GetMoney)", "realm ID (the client's GetRealmID, the backend realm, which the realm name may not tell apart; nil if the client has no GetRealmID)"]
       },
       "reload": {
         "meaning": "The interface reloaded (/reload) at this time, and the Session went on.",
@@ -167,7 +167,7 @@
         "A loot row late in a Session, with a position, one corpse and no cast: an item (`sloot\\tn7200\\tn1436\\tn463\\tn790\\t\\tsitem:2589::::::::60:::::\\tn2\\tsCreature-0-5250-0-12-589-00004F2A3B\\tn2\\t`) is 98 bytes, a coin slot 79. With 3 slots in 5 an item, about 92 bytes a loot row; 8 fewer without the route. Before the loot row left out what its GUID already holds (a kind and an NPC or object ID per corpse), it was about 106.",
         "Loot: one slot taken every 30 seconds on average (a busy Session of questing and farming, about 1.3 slots a corpse), so 480 a Session. Lighter play scales it down: 240 (one a minute) and 120 are shown too.",
         "The route: at most one sample every 10 seconds, about 6 bytes each, so at most 1,440 a Session (8.6 KB); always moving is the worst case.",
-        "The rest of a Session: its start row (105 bytes with a seven-digit balance), about 18 zone, instance, afk and back rows (about 29 bytes each), 2 reloads (`sreload\\tn7200\\tn1234567` is 22 bytes, so 24 a row), its end (`send\\tn14400\\tn59\\tn1234567` is 24, so 26) and 2 deaths, each with its `alive` (`sdeath\\tn7200\\tn1436\\tn500\\tn250` is 28, so 30; `salive\\tn7200` is 12, so 14): about 0.8 KB.",
+        "The rest of a Session: its start row (111 bytes with a seven-digit balance and a four-digit realm ID), about 18 zone, instance, afk and back rows (about 29 bytes each), 2 reloads (`sreload\\tn7200\\tn1234567` is 22 bytes, so 24 a row), its end (`send\\tn14400\\tn59\\tn1234567` is 24, so 26) and 2 deaths, each with its `alive` (`sdeath\\tn7200\\tn1436\\tn500\\tn250` is 28, so 30; `salive\\tn7200` is 12, so 14): about 0.8 KB.",
         "Money: a money row late in a Session (`smoney\\tn7200\\tn1234567`) is 21 bytes, so 23 a row. One per balance change: each coin slot looted (2 slots in 5, as above, so 192 a Session at 480 slots) and about 60 more a Session (quest rewards, the vendor sales and purchases below, repairs, flights, training, mail money, deposits and outbid refunds), so 252 changes a Session at 480 loot slots, 156 at 240, 108 at 120.",
         "The Ledger: 10 posts, 10 auction mails, 5 vendor purchases and 20 vendor sales (one row a stack sold, buybacks rare) a day, about 70 bytes a row: 45 rows, 3.2 KB a day. `v1.mails`: about 10 keys of about 100 bytes a day, each kept about a month."
       ],
@@ -188,6 +188,7 @@
         "client": {
           "name": "First Surname",
           "realm": "Forever",
+          "realmID": 6946,
           "class": "WARRIOR",
           "race": "Human",
           "faction": "Alliance",
@@ -216,19 +217,19 @@
           "v1": {
             "current": "1793804460-2",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nsreload\tn1800\tn1234567\nsend\tn14400\tn59\tn1234567",
-              "1793804460-2": "sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\nsend\tn3600\tn60\tn2500000"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\tn6946\nsreload\tn1800\tn1234567\nsend\tn14400\tn59\tn1234567",
+              "1793804460-2": "sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\tn6946\nsend\tn3600\tn60\tn2500000"
             }
           }
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 58, "eu", "pvp", "alliance", 1234567],
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 58, "eu", "pvp", "alliance", 1234567, 6946],
             ["reload", 1800, 1234567],
             ["end", 14400, 59, 1234567]
           ],
           "1793804460-2": [
-            ["start", 0, 1793804460, "Second Surname", "Forever", "MAGE", "Gnome", "Alliance", 60, "eu", "pvp", "alliance", 2500000],
+            ["start", 0, 1793804460, "Second Surname", "Forever", "MAGE", "Gnome", "Alliance", 60, "eu", "pvp", "alliance", 2500000, 6946],
             ["end", 3600, 60, 2500000]
           ]
         }
@@ -241,6 +242,7 @@
         "client": {
           "name": "Third Surname",
           "realm": "Forever",
+          "realmID": 4372,
           "class": "WARRIOR",
           "race": "Orc",
           "faction": "Horde",
@@ -262,18 +264,18 @@
           "v1": {
             "current": "1793794200-2",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsThird Surname\tsForever\tsWARRIOR\tsOrc\tsHorde\tn30\tsus\tsnormal\tshorde\tn85000\nsreload\tn600\tn85000",
-              "1793794200-2": "sstart\tn0\tn1793794200\tsThird Surname\tsForever\tsWARRIOR\tsOrc\tsHorde\tn30\tsus\tsnormal\tshorde\tn85000"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsThird Surname\tsForever\tsWARRIOR\tsOrc\tsHorde\tn30\tsus\tsnormal\tshorde\tn85000\tn4372\nsreload\tn600\tn85000",
+              "1793794200-2": "sstart\tn0\tn1793794200\tsThird Surname\tsForever\tsWARRIOR\tsOrc\tsHorde\tn30\tsus\tsnormal\tshorde\tn85000\tn4372"
             }
           }
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "Third Surname", "Forever", "WARRIOR", "Orc", "Horde", 30, "us", "normal", "horde", 85000],
+            ["start", 0, 1793790000, "Third Surname", "Forever", "WARRIOR", "Orc", "Horde", 30, "us", "normal", "horde", 85000, 4372],
             ["reload", 600, 85000]
           ],
           "1793794200-2": [
-            ["start", 0, 1793794200, "Third Surname", "Forever", "WARRIOR", "Orc", "Horde", 30, "us", "normal", "horde", 85000]
+            ["start", 0, 1793794200, "Third Surname", "Forever", "WARRIOR", "Orc", "Horde", 30, "us", "normal", "horde", 85000, 4372]
           ]
         }
       }
@@ -285,6 +287,7 @@
         "client": {
           "name": "First Surname",
           "realm": "Forever",
+          "realmID": 6946,
           "class": "WARRIOR",
           "race": "Human",
           "faction": "Alliance",
@@ -338,13 +341,13 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn20\tseu\tsnormal\tsalliance\tn9876\nszone\tn0\tn1429\tsElwynn Forest\nszone\tn900\tn1436\tsWestfall\nsafk\tn1200\nsback\tn1500\nsinstance\tn1800\tn36\tsThe Deadmines\tsparty\tn1\nszone\tn3600\tn1436\tsWestfall\nsafk\tn4200\nsend\tn5400\tn20\tn9876"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn20\tseu\tsnormal\tsalliance\tn9876\tn6946\nszone\tn0\tn1429\tsElwynn Forest\nszone\tn900\tn1436\tsWestfall\nsafk\tn1200\nsback\tn1500\nsinstance\tn1800\tn36\tsThe Deadmines\tsparty\tn1\nszone\tn3600\tn1436\tsWestfall\nsafk\tn4200\nsend\tn5400\tn20\tn9876"
             }
           }
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 20, "eu", "normal", "alliance", 9876],
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 20, "eu", "normal", "alliance", 9876, 6946],
             ["zone", 0, 1429, "Elwynn Forest"],
             ["zone", 900, 1436, "Westfall"],
             ["afk", 1200],
@@ -365,6 +368,7 @@
         "client": {
           "name": "Sixth Surname",
           "realm": "Forever",
+          "realmID": 4372,
           "class": "PRIEST",
           "race": "Dwarf",
           "faction": "Alliance",
@@ -412,7 +416,7 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsSixth Surname\tsForever\tsPRIEST\tsDwarf\tsAlliance\tn25\tsus\tsnormal\tsalliance\tn23456\nszone\tn0\tn1436\tsWestfall\nsdeath\tn300\tn1436\tn500\tn250\nsalive\tn420\nsinstance\tn1800\tn36\tsThe Deadmines\tsparty\tn1\nsdeath\tn2400\tn291\t\t\nsalive\tn2430\nszone\tn3600\tn1436\tsWestfall\nsdeath\tn4200\tn1436\tn400\tn600\nsend\tn4500\tn25\tn23456"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsSixth Surname\tsForever\tsPRIEST\tsDwarf\tsAlliance\tn25\tsus\tsnormal\tsalliance\tn23456\tn4372\nszone\tn0\tn1436\tsWestfall\nsdeath\tn300\tn1436\tn500\tn250\nsalive\tn420\nsinstance\tn1800\tn36\tsThe Deadmines\tsparty\tn1\nsdeath\tn2400\tn291\t\t\nsalive\tn2430\nszone\tn3600\tn1436\tsWestfall\nsdeath\tn4200\tn1436\tn400\tn600\nsend\tn4500\tn25\tn23456"
             },
             "routes": {
               "1793790000-1": "@13w 0colx 2s0b4go"
@@ -421,7 +425,7 @@
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "Sixth Surname", "Forever", "PRIEST", "Dwarf", "Alliance", 25, "us", "normal", "alliance", 23456],
+            ["start", 0, 1793790000, "Sixth Surname", "Forever", "PRIEST", "Dwarf", "Alliance", 25, "us", "normal", "alliance", 23456, 4372],
             ["zone", 0, 1436, "Westfall"],
             ["death", 300, 1436, 500, 250],
             ["alive", 420],
@@ -448,6 +452,7 @@
         "client": {
           "name": "First Surname",
           "realm": "Forever",
+          "realmID": 6946,
           "class": "WARRIOR",
           "race": "Human",
           "faction": "Alliance",
@@ -556,8 +561,8 @@
           "v1": {
             "current": "1793876400-2",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn4800\tn60\tn1234567",
-              "1793876400-2": "sstart\tn0\tn1793876400\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn3600\tn60\tn1234567"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\tn6946\nsend\tn4800\tn60\tn1234567",
+              "1793876400-2": "sstart\tn0\tn1793876400\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\tn6946\nsend\tn3600\tn60\tn1234567"
             },
             "mails": {
               "n1796381760\tsFirst Surname\tsForever\tsAuction expired: Linen Cloth\tn0\tsitem:2589::::::::60:::::\tn20": 1,
@@ -577,11 +582,11 @@
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567, 6946],
             ["end", 4800, 60, 1234567]
           ],
           "1793876400-2": [
-            ["start", 0, 1793876400, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["start", 0, 1793876400, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567, 6946],
             ["end", 3600, 60, 1234567]
           ]
         },
@@ -604,6 +609,7 @@
         "client": {
           "name": "Fourth Surname",
           "realm": "Forever",
+          "realmID": 4372,
           "class": "ROGUE",
           "race": "Dwarf",
           "faction": "Alliance",
@@ -711,13 +717,13 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsloot\tn114\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsmoney\tn114\tn5515\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\tn4372\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsloot\tn114\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsmoney\tn114\tn5515\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
             }
           }
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "Fourth Surname", "Forever", "ROGUE", "Dwarf", "Alliance", 20, "us", "normal", "alliance", 4310],
+            ["start", 0, 1793790000, "Fourth Surname", "Forever", "ROGUE", "Dwarf", "Alliance", 20, "us", "normal", "alliance", 4310, 4372],
             ["zone", 0, 1436, "Westfall"],
             ["loot", 112, 1436, null, null, 1752, "item:2589::::::::20", 2, "Creature-0-5250-0-12-589-00004F2A3B", 2, null],
             ["loot", 113, 1436, null, null, 1752, "item:15268::::::1192::20", 1, "Creature-0-5250-0-12-589-00004F2A3B", 1, null],
@@ -740,6 +746,7 @@
         "client": {
           "name": "First Surname",
           "realm": "Forever",
+          "realmID": 6946,
           "class": "WARRIOR",
           "race": "Human",
           "faction": "Alliance",
@@ -789,7 +796,7 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nszone\tn4200\tn1434\tsStranglethorn Vale"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\tn6946\nszone\tn4200\tn1434\tsStranglethorn Vale"
             },
             "ledger": {
               "First Surname-Forever": "spost\tn1793790601\tsitem:15268::::::::60::::2:6654:1676\tn1\tn1\tn9000\tn12000\tn24\tn150\tsalliance\nspost\tn1793790661\tsitem:2589::::::::60:::::\tn20\tn1\t\tn900\tn12\tn100\tsalliance\nspost\tn1793794261\tsitem:2589::::::::60:::::\tn20\tn1\t\tn900\tn12\tn100\tsneutral"
@@ -798,7 +805,7 @@
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567, 6946],
             ["zone", 4200, 1434, "Stranglethorn Vale"]
           ]
         },
@@ -818,6 +825,7 @@
         "client": {
           "name": "First Surname",
           "realm": "Forever",
+          "realmID": 6946,
           "class": "WARRIOR",
           "race": "Human",
           "faction": "Alliance",
@@ -896,7 +904,7 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn4800\tn60\tn1234567"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\tn6946\nsend\tn4800\tn60\tn1234567"
             },
             "mails": {
               "n1796339400\tsFirst Surname\tsForever\tsAuction won: Ridge Cleaver of the Monkey\tn0\tsitem:15268::::::::60::::2:6654:1676\tn1": 1,
@@ -912,7 +920,7 @@
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567, 6946],
             ["end", 4800, 60, 1234567]
           ]
         },
@@ -936,6 +944,7 @@
         "client": {
           "name": "Fifth Surname",
           "realm": "Forever",
+          "realmID": 4372,
           "class": "HUNTER",
           "race": "NightElf",
           "faction": "Alliance",
@@ -1016,7 +1025,7 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFifth Surname\tsForever\tsHUNTER\tsNightElf\tsAlliance\tn30\tsus\tsnormal\tsalliance\tn61000\nszone\tn0\tn1436\tsWestfall\nsloot\tn26\tn1436\tn463\tn790\t\tsitem:2589::::::::30\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsinstance\tn40\tn36\tsThe Deadmines\tsparty\tn1\nsloot\tn56\tn291\t\t\t\tsitem:2589::::::::30\tn1\tsCreature-0-5250-36-77-634-00004F2A50\tn1\t\nsreload\tn60\tn61000\nszone\tn100\tn1436\tsWestfall\nszone\tn120\tn1429\tsElwynn Forest\nsend\tn140\tn30\tn61000"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFifth Surname\tsForever\tsHUNTER\tsNightElf\tsAlliance\tn30\tsus\tsnormal\tsalliance\tn61000\tn4372\nszone\tn0\tn1436\tsWestfall\nsloot\tn26\tn1436\tn463\tn790\t\tsitem:2589::::::::30\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsinstance\tn40\tn36\tsThe Deadmines\tsparty\tn1\nsloot\tn56\tn291\t\t\t\tsitem:2589::::::::30\tn1\tsCreature-0-5250-36-77-634-00004F2A50\tn1\t\nsreload\tn60\tn61000\nszone\tn100\tn1436\tsWestfall\nszone\tn120\tn1429\tsElwynn Forest\nsend\tn140\tn30\tn61000"
             },
             "routes": {
               "1793790000-1": "@13w 0colx acsly kcvly 28dwdw @13p a6yku"
@@ -1025,7 +1034,7 @@
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "Fifth Surname", "Forever", "HUNTER", "NightElf", "Alliance", 30, "us", "normal", "alliance", 61000],
+            ["start", 0, 1793790000, "Fifth Surname", "Forever", "HUNTER", "NightElf", "Alliance", 30, "us", "normal", "alliance", 61000, 4372],
             ["zone", 0, 1436, "Westfall"],
             ["loot", 26, 1436, 463, 790, null, "item:2589::::::::30", 2, "Creature-0-5250-0-12-589-00004F2A3B", 2, null],
             ["instance", 40, 36, "The Deadmines", "party", 1],
@@ -1054,6 +1063,7 @@
         "client": {
           "name": "Second Surname",
           "realm": "Forever",
+          "realmID": 6946,
           "class": "MAGE",
           "race": "Gnome",
           "faction": "Alliance",
@@ -1124,8 +1134,8 @@
           "v1": {
             "current": "1793790660-2",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\nsend\tn600\tn60\tn2500000",
-              "1793790660-2": "sstart\tn0\tn1793790660\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn3540\tn60\tn1234567"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\tn6946\nsend\tn600\tn60\tn2500000",
+              "1793790660-2": "sstart\tn0\tn1793790660\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\tn6946\nsend\tn3540\tn60\tn1234567"
             },
             "mails": {
               "n1796382720\tsFirst Surname\tsForever\t\t\tsitem:2589::::::::60:::::\tn20\tsitem:4306::::::::60:::::\tn5\tsitem:2589::::::::60:::::\tn20": 1,
@@ -1142,11 +1152,11 @@
         },
         "sessions": {
           "1793790000-1": [
-            ["start", 0, 1793790000, "Second Surname", "Forever", "MAGE", "Gnome", "Alliance", 60, "eu", "pvp", "alliance", 2500000],
+            ["start", 0, 1793790000, "Second Surname", "Forever", "MAGE", "Gnome", "Alliance", 60, "eu", "pvp", "alliance", 2500000, 6946],
             ["end", 600, 60, 2500000]
           ],
           "1793790660-2": [
-            ["start", 0, 1793790660, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["start", 0, 1793790660, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567, 6946],
             ["end", 3540, 60, 1234567]
           ]
         },

@@ -64,7 +64,7 @@
       "name": "PriceWatch.lua: a recording of two Sessions as the client writes it",
       "note": "The saved recording of recording-v1.json's first case (\"a Session through /reload to logout, then a switch to another character\"), beside the addon's settings. Each Session is one string: its rows' fields separated by real tabs, its rows by `\\n`, as Forever's client writes a newline. `expected.value.PriceWatchDB.recording` is that case's `expected.recording`, and a runner checks the two are equal. The Companion uploads `recording` and nothing else from the file.",
       "input": {
-        "text": "\nPriceWatchDB = {\n\t[\"recording\"] = {\n\t\t[\"count\"] = 2,\n\t\t[\"v1\"] = {\n\t\t\t[\"current\"] = \"1793804460-2\",\n\t\t\t[\"sessions\"] = {\n\t\t\t\t[\"1793790000-1\"] = \"sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\\nsreload\tn1800\tn1234567\\nsend\tn14400\tn59\tn1234567\",\n\t\t\t\t[\"1793804460-2\"] = \"sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\\nsend\tn3600\tn60\tn2500000\",\n\t\t\t},\n\t\t},\n\t},\n\t[\"settings\"] = {\n\t\t[\"recordSessions\"] = true,\n\t\t[\"recordRoute\"] = false,\n\t},\n}\n"
+        "text": "\nPriceWatchDB = {\n\t[\"recording\"] = {\n\t\t[\"count\"] = 2,\n\t\t[\"v1\"] = {\n\t\t\t[\"current\"] = \"1793804460-2\",\n\t\t\t[\"sessions\"] = {\n\t\t\t\t[\"1793790000-1\"] = \"sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\tn6946\\nsreload\tn1800\tn1234567\\nsend\tn14400\tn59\tn1234567\",\n\t\t\t\t[\"1793804460-2\"] = \"sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\tn6946\\nsend\tn3600\tn60\tn2500000\",\n\t\t\t},\n\t\t},\n\t},\n\t[\"settings\"] = {\n\t\t[\"recordSessions\"] = true,\n\t\t[\"recordRoute\"] = false,\n\t},\n}\n"
       },
       "expected": {
         "value": {
@@ -74,8 +74,8 @@
               "v1": {
                 "current": "1793804460-2",
                 "sessions": {
-                  "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nsreload\tn1800\tn1234567\nsend\tn14400\tn59\tn1234567",
-                  "1793804460-2": "sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\nsend\tn3600\tn60\tn2500000"
+                  "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\tn6946\nsreload\tn1800\tn1234567\nsend\tn14400\tn59\tn1234567",
+                  "1793804460-2": "sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\tn6946\nsend\tn3600\tn60\tn2500000"
                 }
               }
             },
