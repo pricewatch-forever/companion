@@ -50,10 +50,17 @@ const (
 	Expired PollStatus = "expired" // this link is over; ask for a new one
 )
 
+// Token is the device token. It prints as [hidden] so that it never ends up
+// in the terminal or a log by accident.
+type Token string
+
+func (Token) String() string   { return "[hidden]" }
+func (Token) GoString() string { return `"[hidden]"` }
+
 // Poll is the server's answer to a poll.
 type Poll struct {
 	Status PollStatus `json:"status"`
-	Token  string     `json:"token"` // the device token, only with Linked
+	Token  Token      `json:"token"` // the device token, only with Linked
 }
 
 // UploadResult is the server's answer to an upload.
@@ -94,16 +101,9 @@ func (e *StatusError) Error() string {
 // IsTemporary reports whether a request that failed with err is worth
 // sending again later: the network failed or the server answered 5xx.
 func IsTemporary(err error) bool {
-	if err == nil {
-		return false
-	}
 	var se *StatusError
 	if errors.As(err, &se) {
 		return se.Status >= 500
-	}
-	var rl *RateLimitedError
-	if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrTooLarge) || errors.As(err, &rl) {
-		return false
 	}
 	var ne *networkError
 	return errors.As(err, &ne)
@@ -135,7 +135,7 @@ func (c *Client) Poll(ctx context.Context, secret string) (Poll, error) {
 
 // Upload sends recording, PriceWatchDB.recording as the addon saved it, with
 // the device token.
-func (c *Client) Upload(ctx context.Context, token string, recording any) (UploadResult, error) {
+func (c *Client) Upload(ctx context.Context, token Token, recording any) (UploadResult, error) {
 	var u UploadResult
 	err := c.post(ctx, "/companion/v1/upload", token, struct {
 		Version   string `json:"version,omitempty"`
@@ -144,7 +144,7 @@ func (c *Client) Upload(ctx context.Context, token string, recording any) (Uploa
 	return u, err
 }
 
-func (c *Client) post(ctx context.Context, path, token string, body, answer any) error {
+func (c *Client) post(ctx context.Context, path string, token Token, body, answer any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -155,7 +155,7 @@ func (c *Client) post(ctx context.Context, path, token string, body, answer any)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", "Bearer "+string(token))
 	}
 	res, err := c.http.Do(req)
 	if err != nil {

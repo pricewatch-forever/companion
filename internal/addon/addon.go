@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/pricewatch-forever/companion/internal/atomicfile"
 )
 
 // Name is the data addon's folder name under Interface/AddOns.
@@ -29,11 +31,6 @@ const toc = `## Interface: 16001
 ` + Name + `.lua
 `
 
-// Dir is the data addon's folder in the install at game.
-func Dir(game string) string {
-	return filepath.Join(game, "Interface", "AddOns", Name)
-}
-
 // Write writes the data addon into the install at game, and reports whether
 // its folder was new (the game only finds a new addon when it starts).
 func Write(game string, s State) (created bool, err error) {
@@ -41,7 +38,7 @@ func Write(game string, s State) (created bool, err error) {
 	if info, err := os.Stat(addons); err != nil || !info.IsDir() {
 		return false, fmt.Errorf("no Interface/AddOns folder in %s: is it the game's folder?", game)
 	}
-	dir := Dir(game)
+	dir := filepath.Join(addons, Name)
 	switch err := os.Mkdir(dir, 0o755); {
 	case err == nil:
 		created = true
@@ -49,14 +46,14 @@ func Write(game string, s State) (created bool, err error) {
 	default:
 		return false, err
 	}
-	if err := writeFile(filepath.Join(dir, Name+".toc"), []byte(toc)); err != nil {
+	if err := atomicfile.Write(filepath.Join(dir, Name+".toc"), []byte(toc), 0o644); err != nil {
 		return created, err
 	}
-	return created, writeFile(filepath.Join(dir, Name+".lua"), []byte(Lua(s)))
+	return created, atomicfile.Write(filepath.Join(dir, Name+".lua"), []byte(lua(s)), 0o644)
 }
 
-// Lua is the data addon's one line.
-func Lua(s State) string {
+// lua is the data addon's one line.
+func lua(s State) string {
 	if !s.Linked {
 		return "PriceWatchCompanion = { linked = false }\n"
 	}
@@ -64,30 +61,4 @@ func Lua(s State) string {
 		return "PriceWatchCompanion = { linked = true }\n"
 	}
 	return fmt.Sprintf("PriceWatchCompanion = { linked = true, uploadedUpTo = %d }\n", *s.UploadedUpTo)
-}
-
-// writeFile replaces a file whole, so the game never reads half of one.
-func writeFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".companion-*")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return nil
 }

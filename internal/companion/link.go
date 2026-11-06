@@ -72,7 +72,7 @@ func (l *Linker) Link(ctx context.Context, name string) error {
 		}
 		switch p.Status {
 		case api.Linked:
-			err := l.Store.Save(config.Config{Server: l.Server, Token: config.Token(p.Token)})
+			err := l.Store.Save(config.Config{Server: l.Server, Token: p.Token})
 			if err != nil {
 				return fmt.Errorf("linked, but couldn't save the link: %w", err)
 			}

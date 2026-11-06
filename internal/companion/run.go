@@ -33,7 +33,7 @@ func (SystemClock) After(d time.Duration) <-chan time.Time { return time.After(d
 
 // Uploader sends a recording to the server.
 type Uploader interface {
-	Upload(ctx context.Context, token string, recording any) (api.UploadResult, error)
+	Upload(ctx context.Context, token api.Token, recording any) (api.UploadResult, error)
 }
 
 // ErrNotLinked means Run was started before the Companion was linked.
@@ -44,8 +44,8 @@ var ErrNotLinked = errors.New("the Companion isn't linked yet: run `companion li
 var ErrUnlinked = errors.New("this computer was unlinked on the website: run `companion link` to link it again")
 
 const (
-	// Settle is how long a file must go unchanged before it is uploaded.
-	Settle = 2 * time.Second
+	// settle is how long a file must go unchanged before it is uploaded.
+	settle = 2 * time.Second
 	// The first wait after a failed upload; each failure after it doubles
 	// the wait, up to maxBackoff.
 	firstBackoff = 30 * time.Second
@@ -67,12 +67,34 @@ type Runner struct {
 	Out io.Writer
 }
 
-// file is where one PriceWatch.lua stands.
-type file struct {
-	dirty     bool      // changed since it was last uploaded
+// fileState is where one PriceWatch.lua stands.
+type fileState struct {
+	toUpload  bool      // changed since it was last read for an upload
+	answered  bool      // what it holds now has been answered by the server
 	due       time.Time // when it has stopped changing
 	notBefore time.Time // when to try again after a failure
 	failures  int
+}
+
+// saved notes that the game has written the file.
+func (f *fileState) saved(now time.Time) {
+	f.toUpload = true
+	f.answered = false
+	f.due = now.Add(settle)
+}
+
+// readyAt is when the file can be uploaded.
+func (f *fileState) readyAt(blockedUntil time.Time) time.Time {
+	return latest(f.due, f.notBefore, blockedUntil)
+}
+
+// session is one Run: the link it uploads with and where each file stands.
+type session struct {
+	*Runner
+	token        api.Token
+	cfg          config.Config // as last saved
+	files        map[string]*fileState
+	blockedUntil time.Time // no upload before it, after a 429
 }
 
 // Run uploads until ctx is done. It returns ErrNotLinked at once if the
@@ -86,54 +108,32 @@ func (r *Runner) Run(ctx context.Context) error {
 	if !cfg.Linked() {
 		return ErrNotLinked
 	}
-	token := cfg.Token
-
 	paths, err := wow.Files(r.Game)
 	if err != nil {
 		return err
 	}
+	s := &session{Runner: r, token: cfg.Token, cfg: cfg, files: map[string]*fileState{}}
 	now := r.Clock.Now()
-	files := map[string]*file{}
 	for _, p := range paths {
-		files[p] = &file{dirty: true, due: now}
+		s.files[p] = &fileState{toUpload: true, due: now}
 	}
-	if len(files) == 0 {
+	if len(paths) == 0 {
 		r.Say("No PriceWatch data yet: it is uploaded when the game first saves it.")
 	}
-	if err := r.writeAddon(cfg, files); err != nil {
+	if err := s.writeAddon(); err != nil {
 		return err
 	}
 
-	var blockedUntil time.Time // after a 429
 	events := r.Events
 	for {
-		now := r.Clock.Now()
-		for _, p := range sortedKeys(files) {
-			f := files[p]
-			if !f.dirty || now.Before(latest(f.due, f.notBefore, blockedUntil)) {
-				continue
-			}
-			cfg, err = r.upload(ctx, token, p, f, &blockedUntil)
-			if ctx.Err() != nil {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if err := r.writeAddon(cfg, files); err != nil {
-				r.Say("Can't write the data addon: %v", err)
-			}
+		err := s.uploadReady(ctx)
+		if ctx.Err() != nil {
+			return nil
 		}
-
-		wait := idleWait
-		for _, f := range files {
-			if f.dirty {
-				if d := latest(f.due, f.notBefore, blockedUntil).Sub(now); d < wait {
-					wait = max(d, 0)
-				}
-			}
+		if err != nil {
+			return err
 		}
-		timer := r.Clock.After(wait)
+		timer := r.Clock.After(s.nextWait(r.Clock.Now()))
 		select {
 		case <-ctx.Done():
 			return nil
@@ -142,132 +142,167 @@ func (r *Runner) Run(ctx context.Context) error {
 				events = nil
 				continue
 			}
-			f := files[p]
+			f := s.files[p]
 			if f == nil {
-				f = &file{}
-				files[p] = f
+				f = &fileState{}
+				s.files[p] = f
 			}
-			f.dirty = true
-			f.due = r.Clock.Now().Add(Settle)
+			f.saved(r.Clock.Now())
 		case <-timer:
 		}
 	}
 }
 
-// upload uploads one file and records the answer. It returns the config as
-// saved, or an error that stops the runner.
-func (r *Runner) upload(ctx context.Context, token config.Token, path string, f *file, blockedUntil *time.Time) (config.Config, error) {
-	account := wow.Account(path)
-	f.dirty = false
-	recording, err := readRecording(path)
-	if err != nil {
-		r.Say("Can't read %s's PriceWatch data (%v). It is read again the next time the game saves it.", account, err)
-		return r.Store.Load()
+// uploadReady uploads every file that is ready, and tells the addon after
+// each. It returns an error that stops the runner.
+func (s *session) uploadReady(ctx context.Context) error {
+	now := s.Clock.Now()
+	paths := make([]string, 0, len(s.files))
+	for p := range s.files {
+		paths = append(paths, p)
 	}
-	if recording == nil {
-		r.Say("Nothing recorded yet for %s.", account)
-		return r.record(token, path, nil, false)
-	}
-
-	res, err := r.Client.Upload(ctx, string(token), recording)
-	var rl *api.RateLimitedError
-	switch {
-	case err == nil:
-		f.failures = 0
-		f.notBefore = time.Time{}
-		r.Say("Uploaded %s's PriceWatch data.", account)
-		return r.record(token, path, res.UploadedUpTo, true)
-	case ctx.Err() != nil:
-		return config.Config{}, nil
-	case errors.Is(err, api.ErrUnauthorized):
-		return r.unlink(token)
-	case errors.As(err, &rl):
-		f.dirty = true
-		*blockedUntil = r.Clock.Now().Add(rl.RetryAfter)
-		r.Say("The server has had enough uploads for now: the next one is in %s.", roundWait(rl.RetryAfter))
-	case api.IsTemporary(err):
-		f.dirty = true
-		wait := firstBackoff << min(f.failures, 16)
-		wait = min(wait, maxBackoff)
-		f.failures++
-		f.notBefore = r.Clock.Now().Add(wait)
-		r.Say("Couldn't upload %s's PriceWatch data (%v). Trying again in %s.", account, err, roundWait(wait))
-	case errors.Is(err, api.ErrTooLarge):
-		r.Say("%s's PriceWatch data is too large to upload. It is tried again the next time the game saves it.", account)
-	default:
-		r.Say("The server refused %s's PriceWatch data (%v). It is tried again the next time the game saves it.", account, err)
-	}
-	return r.Store.Load()
-}
-
-// record saves the server's answer for one file. A nil time keeps the time
-// it had.
-func (r *Runner) record(token config.Token, path string, upTo *int64, uploaded bool) (config.Config, error) {
-	err := r.Store.Update(token, func(c *config.Config) {
-		if c.Accounts == nil {
-			c.Accounts = map[string]config.Account{}
+	sort.Strings(paths)
+	for _, p := range paths {
+		f := s.files[p]
+		if !f.toUpload || now.Before(f.readyAt(s.blockedUntil)) {
+			continue
 		}
-		a := c.Accounts[path]
-		a.Answered = true
-		if upTo != nil {
-			a.UploadedUpTo = upTo
+		if err := s.upload(ctx, p, f); err != nil || ctx.Err() != nil {
+			return err
 		}
-		c.Accounts[path] = a
-		if uploaded {
-			c.LastUpload = r.Clock.Now()
+		if err := s.writeAddon(); err != nil {
+			s.Say("Can't write the data addon: %v", err)
 		}
-	})
-	if errors.Is(err, config.ErrRelinked) {
-		return config.Config{}, errors.New("the Companion was linked again while running: start `companion run` again")
-	}
-	if err != nil {
-		return config.Config{}, err
-	}
-	return r.Store.Load()
-}
-
-// unlink marks the Companion unlinked after a 401 and tells the addon.
-func (r *Runner) unlink(token config.Token) (config.Config, error) {
-	err := r.Store.Update(token, func(c *config.Config) {
-		c.Token = ""
-		c.Accounts = nil
-	})
-	if err != nil && !errors.Is(err, config.ErrRelinked) {
-		return config.Config{}, err
-	}
-	if _, err := addon.Write(r.Game, addon.State{Linked: false}); err != nil {
-		r.Say("Can't write the data addon: %v", err)
-	}
-	r.Say("This computer was unlinked on the website, so uploads have stopped. Run `companion link` to link it again.")
-	return config.Config{}, ErrUnlinked
-}
-
-// writeAddon tells the addon the Companion is linked, and the smallest of
-// the accounts' times: no account's addon may drop what isn't uploaded.
-func (r *Runner) writeAddon(cfg config.Config, files map[string]*file) error {
-	created, err := addon.Write(r.Game, addon.State{Linked: true, UploadedUpTo: smallestTime(cfg, files)})
-	if err != nil {
-		return err
-	}
-	if created {
-		r.Say("Wrote the PriceWatch_Companion addon into the game. The game only finds a new addon when it starts: if it's running, restart it (a /reload isn't enough).")
 	}
 	return nil
 }
 
-// smallestTime is the smallest uploaded-up-to time of the accounts, or nil
-// while one of them hasn't been answered. An account answered with no time
-// at all (it had no records) holds nothing back.
-func smallestTime(cfg config.Config, files map[string]*file) *int64 {
-	var smallest *int64
-	for p := range files {
-		a, ok := cfg.Accounts[p]
-		if !ok || !a.Answered {
-			return nil
+// nextWait is how long until a file is ready to upload.
+func (s *session) nextWait(now time.Time) time.Duration {
+	wait := idleWait
+	for _, f := range s.files {
+		if f.toUpload {
+			wait = min(wait, max(f.readyAt(s.blockedUntil).Sub(now), 0))
 		}
-		if a.UploadedUpTo != nil && (smallest == nil || *a.UploadedUpTo < *smallest) {
-			v := *a.UploadedUpTo
-			smallest = &v
+	}
+	return wait
+}
+
+// upload uploads one file and saves the answer. It returns an error that
+// stops the runner.
+func (s *session) upload(ctx context.Context, path string, f *fileState) error {
+	account := wow.Account(path)
+	f.toUpload = false
+	recording, err := readRecording(path)
+	if err != nil {
+		s.Say("Can't read %s's PriceWatch data (%v). It is read again the next time the game saves it.", account, err)
+		return nil
+	}
+	if recording == nil {
+		s.Say("Nothing recorded yet for %s.", account)
+		f.answered = true
+		return nil
+	}
+
+	res, err := s.Client.Upload(ctx, s.token, recording)
+	var limited *api.RateLimitedError
+	switch {
+	case err == nil:
+		f.answered = true
+		f.failures = 0
+		f.notBefore = time.Time{}
+		s.Say("Uploaded %s's PriceWatch data.", account)
+		return s.saveAnswer(path, res.UploadedUpTo)
+	case ctx.Err() != nil:
+		return nil
+	case errors.Is(err, api.ErrUnauthorized):
+		return s.unlink()
+	case errors.As(err, &limited) && limited.RetryAfter > 0:
+		f.toUpload = true
+		s.blockedUntil = s.Clock.Now().Add(limited.RetryAfter)
+		s.Say("The server has had enough uploads for now: the next one is in %s.", roundWait(limited.RetryAfter))
+	case limited != nil || api.IsTemporary(err):
+		f.toUpload = true
+		wait := min(firstBackoff<<min(f.failures, 16), maxBackoff)
+		f.failures++
+		f.notBefore = s.Clock.Now().Add(wait)
+		s.Say("Couldn't upload %s's PriceWatch data (%v). Trying again in %s.", account, err, roundWait(wait))
+	case errors.Is(err, api.ErrTooLarge):
+		s.Say("%s's PriceWatch data is too large to upload. It is tried again the next time the game saves it.", account)
+	default:
+		s.Say("The server refused %s's PriceWatch data (%v). It is tried again the next time the game saves it.", account, err)
+	}
+	return nil
+}
+
+// saveAnswer saves the server's answer to an upload of one file. A nil
+// time keeps the time the file had.
+func (s *session) saveAnswer(path string, upTo *int64) error {
+	cfg, err := s.Store.Update(s.token, func(c *config.Config) {
+		if upTo != nil {
+			if c.UploadedUpTo == nil {
+				c.UploadedUpTo = map[string]int64{}
+			}
+			c.UploadedUpTo[path] = *upTo
+		}
+		c.LastUpload = s.Clock.Now()
+	})
+	if errors.Is(err, config.ErrRelinked) {
+		return errors.New("the Companion was linked again while running: start `companion run` again")
+	}
+	if err != nil {
+		return err
+	}
+	s.cfg = cfg
+	return nil
+}
+
+// unlink marks the Companion unlinked after a 401, tells the addon, and
+// returns ErrUnlinked.
+func (s *session) unlink() error {
+	_, err := s.Store.Update(s.token, func(c *config.Config) {
+		c.Token = ""
+		c.UploadedUpTo = nil
+	})
+	if err != nil && !errors.Is(err, config.ErrRelinked) {
+		return err
+	}
+	if _, err := addon.Write(s.Game, addon.State{Linked: false}); err != nil {
+		s.Say("Can't write the data addon: %v", err)
+	}
+	s.Say("This computer was unlinked on the website, so uploads have stopped. Run `companion link` to link it again.")
+	return ErrUnlinked
+}
+
+// writeAddon tells the addon the Companion is linked, and up to when.
+func (s *session) writeAddon() error {
+	created, err := addon.Write(s.Game, addon.State{Linked: true, UploadedUpTo: s.smallestTime()})
+	if err != nil {
+		return err
+	}
+	if created {
+		s.Say("Wrote the PriceWatch_Companion addon into the game. The game only finds a new addon when it starts: if it's running, restart it (a /reload isn't enough).")
+	}
+	return nil
+}
+
+// smallestTime is the time the addon may drop records up to: the smallest
+// of the accounts' times, so that no account's addon drops what isn't
+// uploaded. A file the server has a time for holds back nothing after it,
+// since what the game writes later is later. A file without a time holds
+// back everything (nil) until what it holds now has been answered.
+func (s *session) smallestTime() *int64 {
+	var smallest *int64
+	for p, f := range s.files {
+		t, ok := s.cfg.UploadedUpTo[p]
+		if !ok {
+			if !f.answered {
+				return nil
+			}
+			continue
+		}
+		if smallest == nil || t < *smallest {
+			smallest = &t
 		}
 	}
 	return smallest
@@ -319,13 +354,4 @@ func latest(ts ...time.Time) time.Time {
 		}
 	}
 	return l
-}
-
-func sortedKeys(m map[string]*file) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

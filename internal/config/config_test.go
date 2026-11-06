@@ -33,13 +33,12 @@ func TestNothingSavedIsNotLinked(t *testing.T) {
 
 func TestSavedIsReadBackAndReadableByTheUserOnly(t *testing.T) {
 	s, path := newStore(t)
-	upTo := int64(1793805060)
 	at := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	want := config.Config{
-		Server:     "https://example.convex.site",
-		Token:      token,
-		LastUpload: at,
-		Accounts:   map[string]config.Account{"/game/WTF/Account/A/SavedVariables/PriceWatch.lua": {Answered: true, UploadedUpTo: &upTo}},
+		Server:       "https://example.convex.site",
+		Token:        token,
+		LastUpload:   at,
+		UploadedUpTo: map[string]int64{"/game/WTF/Account/A/SavedVariables/PriceWatch.lua": 1793805060},
 	}
 	if err := s.Save(want); err != nil {
 		t.Fatal(err)
@@ -62,9 +61,8 @@ func TestSavedIsReadBackAndReadableByTheUserOnly(t *testing.T) {
 	if !got.Linked() || got.Token != token || got.Server != want.Server || !got.LastUpload.Equal(at) {
 		t.Errorf("read back %+v", got)
 	}
-	a := got.Accounts["/game/WTF/Account/A/SavedVariables/PriceWatch.lua"]
-	if !a.Answered || a.UploadedUpTo == nil || *a.UploadedUpTo != upTo {
-		t.Errorf("account read back as %+v", a)
+	if upTo := got.UploadedUpTo["/game/WTF/Account/A/SavedVariables/PriceWatch.lua"]; upTo != 1793805060 {
+		t.Errorf("uploaded up to read back as %d", upTo)
 	}
 }
 
@@ -102,13 +100,13 @@ func TestUpdateChangesOnlyWhileTheSameTokenIsSaved(t *testing.T) {
 	if err := s.Save(config.Config{Token: token}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Update(token, func(c *config.Config) { c.LastUpload = time.Unix(1, 0) }); err != nil {
+	if _, err := s.Update(token, func(c *config.Config) { c.LastUpload = time.Unix(1, 0) }); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Save(config.Config{Token: "another"}); err != nil {
 		t.Fatal(err)
 	}
-	err := s.Update(token, func(c *config.Config) { c.LastUpload = time.Unix(2, 0) })
+	_, err := s.Update(token, func(c *config.Config) { c.LastUpload = time.Unix(2, 0) })
 	if !errors.Is(err, config.ErrRelinked) {
 		t.Errorf("update after a new link: %v, want ErrRelinked", err)
 	}

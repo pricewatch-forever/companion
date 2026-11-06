@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -166,10 +167,10 @@ func TestFixtureCases(t *testing.T) {
 				if err == nil {
 					m := map[string]any{"status": string(p.Status)}
 					if p.Token != "" {
-						if !tokenRe.MatchString(p.Token) {
+						if !tokenRe.MatchString(string(p.Token)) {
 							t.Errorf("token %q doesn't match the server's pattern", p.Token)
 						}
-						m["token"] = p.Token
+						m["token"] = string(p.Token)
 					}
 					got = m
 				}
@@ -181,7 +182,7 @@ func TestFixtureCases(t *testing.T) {
 					}
 				}
 				var u api.UploadResult
-				u, err = client.Upload(ctx, strings.TrimPrefix(req.Headers["Authorization"], "Bearer "), recording)
+				u, err = client.Upload(ctx, api.Token(strings.TrimPrefix(req.Headers["Authorization"], "Bearer ")), recording)
 				if err == nil {
 					var upTo any
 					if u.UploadedUpTo != nil {
@@ -304,6 +305,17 @@ func TestAServerAddressWithATrailingSlash(t *testing.T) {
 	p, err := api.New(srv.URL+"/", "1.0.0").Poll(context.Background(), "s")
 	if err != nil || p.Status != api.Pending {
 		t.Errorf("poll %v, %v", p, err)
+	}
+}
+
+func TestTheTokenIsNeverPrinted(t *testing.T) {
+	p := api.Poll{Status: api.Linked, Token: exampleToken}
+	for _, format := range []string{"%v", "%+v", "%#v", "%s"} {
+		for _, v := range []any{p, p.Token} {
+			if s := fmt.Sprintf(format, v); strings.Contains(s, exampleToken) {
+				t.Errorf("%s prints the token: %s", format, s)
+			}
+		}
 	}
 }
 

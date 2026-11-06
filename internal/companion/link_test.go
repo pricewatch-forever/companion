@@ -136,15 +136,14 @@ func TestLinkingShowsTheCodeOpensThePageAndKeepsTheToken(t *testing.T) {
 
 func TestLinkingAgainForgetsTheEarlierLinksTimes(t *testing.T) {
 	h := newLinkHarness(t, `{"status":"linked","token":"`+token+`"}`)
-	upTo := int64(1)
-	if err := h.store.Save(config.Config{Token: "old", Accounts: map[string]config.Account{"x": {Answered: true, UploadedUpTo: &upTo}}}); err != nil {
+	if err := h.store.Save(config.Config{Token: "old", UploadedUpTo: map[string]int64{"x": 1}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.link(); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := h.store.Load()
-	if c.Token != token || len(c.Accounts) != 0 {
+	if c.Token != token || len(c.UploadedUpTo) != 0 {
 		t.Errorf("config %+v", c)
 	}
 }

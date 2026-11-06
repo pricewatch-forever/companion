@@ -193,6 +193,17 @@ func (h *harness) save(account string, n int) {
 	}
 }
 
+// saveEmpty writes the account's PriceWatch.lua with nothing recorded yet.
+func (h *harness) saveEmpty(account string) {
+	h.t.Helper()
+	if err := os.MkdirAll(filepath.Dir(h.file(account)), 0o755); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := os.WriteFile(h.file(account), []byte("\nPriceWatchDB = {\n}\n"), 0o644); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
 func (h *harness) link() {
 	h.t.Helper()
 	if err := h.store.Save(config.Config{Server: h.srv.URL, Token: token}); err != nil {
@@ -409,6 +420,26 @@ func TestAnUnreachableServerIsTriedAgainLaterEachTime(t *testing.T) {
 	}
 }
 
+func TestA429WithoutATimeStillWaits(t *testing.T) {
+	h := newHarness(t, "AAA")
+	h.answer = func(n int, _ upload) answer {
+		if n == 1 {
+			return answer{429, `{"error":"too_many_uploads"}`}
+		}
+		return answer{200, `{"uploadedUpTo":1793805060}`}
+	}
+	h.link()
+	h.start()
+	wait := h.idle()
+	h.expectUploads(1)
+	if wait <= 0 {
+		t.Fatalf("tries again in %v", wait)
+	}
+	h.clock.Advance(wait)
+	h.idle()
+	h.expectUploads(2)
+}
+
 func TestA429WaitsItsRetryAfter(t *testing.T) {
 	h := newHarness(t, "AAA")
 	h.answer = func(n int, _ upload) answer {
@@ -499,6 +530,50 @@ func TestTwoAccountsTellTheAddonTheSmallerTime(t *testing.T) {
 	h.idle()
 	h.expectUploads(3)
 	h.expectDataAddon("PriceWatchCompanion = { linked = true, uploadedUpTo = 1793790661 }\n")
+}
+
+// An account that had nothing recorded holds no other account back, but
+// once it records something, it does until that is uploaded.
+func TestAnAccountThatHadNothingHoldsTheTimeBackOnceItRecords(t *testing.T) {
+	h := newHarness(t, "AAA")
+	h.saveEmpty("BBB")
+	h.link()
+	h.start()
+	h.idle()
+	h.expectUploads(1)
+	h.expectDataAddon("PriceWatchCompanion = { linked = true, uploadedUpTo = 1793805060 }\n")
+	h.stop()
+
+	// With the Companion stopped, BBB plays; then BBB's upload fails.
+	h.save("BBB", 1)
+	h.mu.Lock()
+	h.answer = func(n int, u upload) answer {
+		if u.account() == "BBB" {
+			return answer{503, `{}`}
+		}
+		return answer{200, `{"uploadedUpTo":1793809999}`}
+	}
+	h.mu.Unlock()
+	h.start()
+	h.idle()
+	h.expectUploads(3)
+	h.expectDataAddon("PriceWatchCompanion = { linked = true }\n")
+}
+
+// A file that can't be read may hold records that were never uploaded.
+func TestAnUnreadableFileHoldsTheTimeBack(t *testing.T) {
+	h := newHarness(t, "AAA")
+	if err := os.MkdirAll(filepath.Dir(h.file("BBB")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(h.file("BBB"), []byte("PriceWatchDB = {\n\t[\"recording\"] = \"cut off"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.link()
+	h.start()
+	h.idle()
+	h.expectUploads(1)
+	h.expectDataAddon("PriceWatchCompanion = { linked = true }\n")
 }
 
 func TestAnAnswerOfNullKeepsTheTimeItHad(t *testing.T) {
