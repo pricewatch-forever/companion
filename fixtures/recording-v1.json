@@ -1,0 +1,1162 @@
+{
+  "format": {
+    "version": 1,
+    "companion": {
+      "meaning": "The Companion's signal to the addon. The Companion writes its own data addon, a plain addon (not load-on-demand) that sets one global table; the addon reads it at login. If the global is absent, or `linked` isn't true, the Companion isn't linked.",
+      "addon": "PriceWatch_Companion",
+      "global": "PriceWatchCompanion",
+      "fields": {
+        "linked": "true while the Companion is linked to an account",
+        "uploadedUpTo": "server time: every record at or before it has been uploaded; absent until the first upload"
+      },
+      "example": "PriceWatchCompanion = { linked = true, uploadedUpTo = 1793804400 }"
+    },
+    "pruning": [
+      "Once per login, the addon drops records: with the Companion linked and `uploadedUpTo` set, those at or before `uploadedUpTo`; otherwise those older than 60 days (at or before the login's server time minus 5184001 s). It prunes with recording turned off too.",
+      "A Session is one record, timed by its last row (its end, or where a crash cut it off), and is dropped whole. The current Session (the one that login started) is never dropped.",
+      "A reader must expect a Session it has already seen to come back longer: with the Companion, a Session still open when uploaded is kept and later read again with more rows.",
+      "Mail rows are Ledger rows, pruned as the next line says. `v1.mails` is not pruned by these rules, since a mail still in the mailbox after its row is dropped must not be recorded again: a key goes a day after its expiry (see `rules`), checked at the same login, so it never holds more than about a month of mails.",
+      "A Ledger row is one record, timed by its field 2 (its server time), and dropped on its own; a character left with no Ledger rows is dropped from `v1.ledger`.",
+      "A route goes with its Session: it is dropped when its Session is.",
+      "`v1.characters` is never pruned: it is how a transfer from a character is recognised after that character's Sessions and Ledger rows are dropped. It stays small without pruning: one short row for each of the account's own characters that has read its mailbox, never anyone else's."
+    ],
+    "rules": [
+      "The recording is PriceWatchDB.recording, next to PriceWatchDB.settings. Its `count` is how many Sessions this account has started, ever; each format version's records sit under `v<version>`, so version 1's under `v1`.",
+      "Once a record kind ships, it never changes without a new version. A new version writes its records under its own key (`v2`) and leaves the older versions' records as they were until they are pruned.",
+      "New record kinds can be added within version 1. Readers skip rows whose kind they don't know.",
+      "A row is one line. Its fields are separated by tabs, and each starts with a type tag: `s` a string, `n` a number (as Lua's tostring writes it), `t` true, `f` false. An empty field is nil. In a string, a backslash, tab or newline is written `\\\\`, `\\t` or `\\n`, so a row never holds a raw tab or newline.",
+      "Field 1 of every row is its kind (a string), and field 2 its time: whole seconds since its Session started, so a reader can place a row whose kind it skips. The rest of the fields are positional, as `kinds` lists them.",
+      "Times are server time (the client's GetServerTime: Unix seconds, UTC).",
+      "`v1.sessions` maps each Session's ID to its rows, joined by newlines, oldest first; a `start` row is always first. The ID is `<start server time>-<count>`, `count` being the Session's number on this account, so it never repeats there and a /reload keeps it.",
+      "`v1.current` is the ID of the Session a /reload continues. A login (or a relog after a disconnect) starts a new Session; a /reload continues the current one.",
+      "A Session ends at its `end` row, which is always its last. A Session without one (a crash, or a disconnect) is read as ending at its last row.",
+      "A `zone` or `instance` row starts a stop, which lasts until the Session's next `zone` or `instance` row, or its end. The rows between belong to that stop, so a dungeon's time is one stop's.",
+      "An `afk` row starts a span away from the keyboard and the next `back` row ends it. A span with no `back` ends when its Session does. AFK time is never time played.",
+      "A `death` row starts a span dead and the next `alive` row ends it. A span with no `alive` ends when its Session does; on Hardcore the Session's `end` follows the death at logout as usual. Whether time dead counts as time played is the server's decision: the rows only mark the span.",
+      "The mails that end an auction (`salePending`, `sale`, `expired`, `cancelled`) and the AH purchases (`bought`) are Ledger rows of the character in whose mailbox they were first seen, timed when they were. Each is recorded once: a mail seen again, at this opening or a later one, in this Session or a later one, adds no row. Their `expiry` is the mail's expiry in server time to the nearest minute, worked out from the client's days left, so it can differ by a minute from the same mail's expiry seen at another time.",
+      "`v1.mails` is the addon's memory of the mails it has recorded, so none is recorded twice; readers can ignore it. Each key is one encoded row: the mail's expiry (as in its row), the character's name and realm, the mail's subject and money, then each attachment's item string and count. Only the auction house's mails keep their subject there (one of the client's own); a mail a player wrote never does (see `transfer` and `received` below). Its value is how many such mails were recorded (identical mails, such as two stacks sold in the same second, each count). A mail matches a key whose expiry is up to a minute either way. A key is dropped a day after its expiry, when the mail is surely gone, never with the Ledger's rows: whenever the mailbox is read, and once per login (even with recording off, the mailbox not opened). `v1.mails` is absent once a login leaves it no key.",
+      "`v1.ledger` maps each character to its Ledger rows, joined by newlines, oldest first. The key is `<name>-<realm>`: the character's name and realm as its Sessions' `start` rows hold them, joined by a hyphen; a character's name never holds a hyphen, so the key splits at its first one.",
+      "Ledger rows aren't in a Session: their field 2 is the server time itself, not seconds since a Session started.",
+      "The player's purchases are Ledger rows, each a Lot with a known cost: `bought` from the AH, recorded from the buyer invoice of the mail that brings the item (one path for buyouts and won bids, as both arrive by mail), and `vendorBought` from a merchant, recorded as the player buys it. Each sale to a merchant is a `vendorSold` Ledger row, recorded as the player sells it, so the Lot it uses up is closed. Buying back an item sold to a merchant is a `buyback` row, not a purchase: it reverses that sale. A client that can't record buybacks records no sales either. What a merchant stocks is never recorded.",
+      "`v1.routes` maps a Session's ID to its route, one string per Session (see `route`). Only a Session played with the route on has one, so `v1.routes` is absent until then.",
+      "A mail with items that isn't from the auction house (`transfer`, `received`; an auction house mail has an invoice, or can't be replied to and has one of the client's auction subjects) is a Ledger row like the mails that end an auction: recorded once, when the character first saw it in its mailbox, its `expiry` worked out the same way. A mail the character sent that came back to it is not recorded. Its `v1.mails` key leaves the subject and money empty (a player's subject is never kept, and money is taken apart from items) and holds each attachment as first seen. Since the player can take some of its items or its money and leave the rest, such a mail matches a key with empty subject and money whose expiry is up to a minute either way and whose attachments include all of the mail's; of several, the one with the fewest attachments.",
+      "`v1.characters` is the account's own characters, so a mail from one of them is recognised as a transfer; readers can ignore it. Each key is `<name>-<realm>` as in `v1.ledger`, and its value an encoded row of that character's Region and Ruleset, as its Session's `start` row holds them. A character is remembered when it reads its mailbox during a Session (as it must to send mail). The account's own characters are those in `v1.characters`, in any Session's `start` row, and in `v1.ledger`'s keys. A sender is one of them when its name is the character's on the receiver's realm, or, failing that, on a realm of the receiver's Region and Ruleset, the Ruleset known (Forever's realms report several names for one Ruleset's mega-realm), or when it is `<name>-<realm>` with the realm's spaces and hyphens left out (a connected realm)."
+    ],
+    "kinds": {
+      "start": {
+        "meaning": "A login started the Session: the character, and the Market it trades in.",
+        "fields": ["kind", "time (0)", "server time", "name", "realm", "class (the client's file name, e.g. WARRIOR)", "race (the client's file name, e.g. Scourge)", "faction (Alliance or Horde)", "level", "Region (us, eu, kr, tw, cn or unknown)", "Ruleset (normal, pvp, rp, rp-pvp or hardcore)", "House (the faction's: alliance or horde, never neutral; nil if the faction is neither)", "money (the character's copper on hand, as the client's GetMoney gives it; nil if the client has no GetMoney)"]
+      },
+      "reload": {
+        "meaning": "The interface reloaded (/reload) at this time, and the Session went on.",
+        "fields": ["kind", "time", "money (copper on hand, as in `start`)"]
+      },
+      "end": {
+        "meaning": "The player logged out, or switched to another character.",
+        "fields": ["kind", "time", "level", "money (copper on hand, as in `start`)"]
+      },
+      "money": {
+        "meaning": "The character's copper on hand changed (the client's PLAYER_MONEY): written only when it differs from the Session's last recorded balance (in its `start`, `reload` or last `money` row), so the client's own PLAYER_MONEY at a login or /reload adds none. With `start`, `reload` and `end`, it lets a Session's gold be rebuilt: quest gold, vendor sales, repairs, flights, training, mail money and outbid refunds show only here. A raw event: what each change was for is worked out on the server, from the loot, purchase, sale and vendor rows around it. Never written without GetMoney.",
+        "fields": ["kind", "time", "money (copper on hand after the change)"]
+      },
+      "loot": {
+        "meaning": "The player took one slot of a loot window: an item, or coin. Slots left in the window aren't recorded; quest items are recorded like any other. A raw event: what it adds up to is worked out on the server.",
+        "fields": [
+          "kind",
+          "time (when the slot was taken)",
+          "map (the uiMapID the player was on, as C_Map.GetBestMapForUnit gives it, so it can be smaller than its stop's zone, e.g. a cave or a dungeon's floor; nil if the client can't say)",
+          "x (the player's position across that map in thousandths, a whole number from 0 at its left edge to 1000 at its right, as in the route; nil unless the route is recorded, and inside an instance)",
+          "y (as x, down the map: 0 at its top edge, 1000 at its bottom)",
+          "spell (the spell ID of the player's last successful cast before the window opened, e.g. 8613 Skinning, 2575 Mining, 2366 Herb Gathering, 13262 Disenchant; nil if there was none since the last window. A cast goes to one window only, so skinning a looted corpse is told apart from looting it)",
+          "item string (the link's `item:…` part, kept whole, so a Variant's suffix is in it; nil for coin)",
+          "quantity (units; copper for coin)",
+          "then three fields per thing the slot was looted from (a corpse, a node or chest, an item; the client's loot sources), as many as there are: its full GUID (so one corpse looted by several players counts once; its first dash-separated field is its kind, e.g. Creature, Vehicle, GameObject or Item, and for a Creature, Vehicle or GameObject its sixth is the NPC or object ID), the quantity looted from it, and for an Item GUID the ID of the item that went in, e.g. disenchanted (an Item GUID doesn't hold it; nil otherwise, or if the client couldn't say). A fishing loot has none"
+        ]
+      },
+      "zone": {
+        "meaning": "The player entered a zone, or the Session started or came out of an instance in one. Never repeated for the zone the player is already in, e.g. after a /reload.",
+        "fields": ["kind", "time", "map ID (the client's uiMapID of the zone; a cave or other smaller map counts as the zone it is in)", "zone name (in the client's language)"]
+      },
+      "instance": {
+        "meaning": "The player entered an instance (a dungeon, raid or battleground): one stop however many maps it has.",
+        "fields": ["kind", "time", "instance ID (the instance's map ID, e.g. 36 for The Deadmines)", "instance name (in the client's language)", "instance type (party, raid, pvp, arena or scenario)", "difficulty ID"]
+      },
+      "afk": {
+        "meaning": "The player was flagged away from keyboard.",
+        "fields": ["kind", "time"]
+      },
+      "back": {
+        "meaning": "The away-from-keyboard flag went off.",
+        "fields": ["kind", "time"]
+      },
+      "death": {
+        "meaning": "The player died. Never the killer: no player's name, ever.",
+        "fields": [
+          "kind",
+          "time",
+          "map (the uiMapID the player died on, as a `loot` row's; nil if the client can't say)",
+          "x (the player's position across that map in thousandths, as a `loot` row's; nil unless the route is recorded, and inside an instance)",
+          "y (as x, down the map)"
+        ]
+      },
+      "alive": {
+        "meaning": "The player is alive again, not a ghost: back at the spirit healer or the corpse, or resurrected by another player. A release to ghost is not one, and adds no row.",
+        "fields": ["kind", "time"]
+      },
+      "salePending": {
+        "meaning": "A seller's temporary invoice (\"Sale Pending\"): one of the character's auctions sold, its money not yet delivered. The buyer is never recorded.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "item name (as the invoice gives it)", "quantity (nil if the client's invoice has no count)", "bid", "buyout", "AH cut", "deposit"]
+      },
+      "sale": {
+        "meaning": "A seller's final invoice (\"Auction successful\"), with the money: an Observed Sale. The buyer is never recorded.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "item name (as the invoice gives it)", "quantity (nil if the client's invoice has no count)", "bid", "buyout", "AH cut", "deposit"]
+      },
+      "expired": {
+        "meaning": "One of the character's auctions expired unsold and its items came back by mail (the client's AUCTION_EXPIRED_MAIL_SUBJECT, on a mail from the auction house: one the client says can't be replied to, and that isn't the player's own mail come back; a player's mail with that subject is `received`). Its deposit is lost.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "item string (the attachment's link from `item:`, without its name)", "quantity"]
+      },
+      "cancelled": {
+        "meaning": "The character cancelled one of its auctions and its items came back by mail (the client's AUCTION_REMOVED_MAIL_SUBJECT, on a mail from the auction house, as for `expired`). Its deposit is lost.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "item string (the attachment's link from `item:`, without its name)", "quantity"]
+      },
+      "post": {
+        "meaning": "A Ledger row: the client confirmed an auction the player posted. Each of its stacks is a Listing of the same Item or Variant, at the same prices, for the same duration, in the Market of the House it was posted at. A post the client never confirms isn't recorded.",
+        "fields": ["kind", "server time (when the client confirmed the post)", "item string (the link's `item:…` part, verbatim, so a Variant keeps its suffix or bonus IDs)", "quantity per stack", "stack count (1 for a commodity post; for an item post, its quantity, each item its own Listing)", "bid per stack, in copper (nil: none, as for a commodity)", "buyout per stack, in copper (nil or 0: none; for a commodity, its unit price × its quantity)", "duration in hours: 12, 24 or 48", "deposit for the whole post, in copper", "House it was posted at, as the addon's tooltip tells it when the client confirms the post: `neutral` in a zone whose auctioneer is a Neutral one (Booty Bay, Gadgetzan, Everlook), else the character's faction's, `alliance` or `horde` (unlike a Session's `start` row, which is never Neutral); nil when the Market couldn't be told"]
+      },
+      "bought": {
+        "meaning": "A Ledger row: an AH purchase, bought out or won with a bid, from the buyer invoice (\"Auction won\") of the mail that brings the item. The seller is never recorded.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "item string (the attachment's link from `item:`, without its name, so a Variant keeps its suffix or bonus IDs)", "quantity (the attachment's count)", "price paid, in copper (the invoice's bid: the buyout, or the winning bid)", "buyout, in copper (the invoice's; equal to the price paid when bought out)"]
+      },
+      "vendorBought": {
+        "meaning": "A Ledger row: the player bought from a merchant. Recorded as the purchase is made.",
+        "fields": ["kind", "server time", "item string (the merchant's link from `item:`, without its name)", "quantity (units: the merchant sells in sets, and buying 3 sets of 5 is 15)", "copper paid (the merchant's price for a set, per unit times the units, to the nearest copper; nil when paid only in items or currencies)", "paid in items or currencies (true or false; when true the copper paid, if any, is only part of the cost)"]
+      },
+      "vendorSold": {
+        "meaning": "A Ledger row: the player sold a bag slot's item to a merchant, using the slot (UseContainerItem) while the merchant window was open. Recorded as the sale is made. An item with no sell price can't be sold and records nothing.",
+        "fields": ["kind", "server time", "item string (the bag slot's link from `item:`, without its name, so a Variant keeps its suffix or bonus IDs)", "quantity (the slot's count)", "copper received (the item's sell price × the quantity)"]
+      },
+      "buyback": {
+        "meaning": "A Ledger row: the player bought back an item just sold to a merchant, from its buyback list. Not a purchase: the game reverses the sale, so the units are back in the Lot the sale used up.",
+        "fields": ["kind", "server time", "item string (the buyback list's link from `item:`, without its name)", "quantity", "copper paid (what the merchant paid for it)"]
+      },
+      "transfer": {
+        "meaning": "A Ledger row: a mail with items from another of the account's own characters (see `v1.characters`). Each item stays the sender's Lot, with its cost, now the receiver's. Its money isn't recorded.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "sender's name (as its Sessions' `start` rows hold it)", "sender's realm (likewise)", "then 2 fields per attachment, in slot order: item string (the attachment's link from `item:`, without its name), quantity"]
+      },
+      "received": {
+        "meaning": "A Ledger row: a mail with items from anyone but the account's own characters and the auction house: another player, an NPC (a quest reward), or a character on another WoW account. The sender isn't recorded. Each item is a Lot of unknown cost. Its money isn't recorded.",
+        "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "then 2 fields per attachment, in slot order: item string (the attachment's link from `item:`, without its name), quantity"]
+      }
+    },
+    "route": {
+      "meaning": "Where the player went in a Session, recorded only while the Companion is linked or the player has turned \"Record route\" on. About every 10 seconds (and at each loading screen and zone change), if the player has moved, the map and position become one sample. Inside an instance there is no position, so no sample.",
+      "encoding": [
+        "A route is one string of tokens, each separated by one space, oldest first. Every number in it is written in base 36 with the digits 0-9 then a-z (lowercase).",
+        "A token starting with `@` names the map the samples after it are on: `@` then the uiMapID, as C_Map.GetBestMapForUnit gives it (as a loot row's map, so it can be smaller than its stop's zone). A route's first token is always one.",
+        "Any other token is a sample. Its last four characters are its x and y, two digits each (`00` to `rs`, 0 to 1000): the player's position on the map in thousandths, as a loot row's x and y. The characters before them, at least one, are its time: seconds since the route's previous sample, or since the Session started for its first.",
+        "A sample is added only when the map or the position has changed since the previous one, so standing still adds none: a gap between samples is time the player stood still, spent in an instance, or played with the route off."
+      ],
+      "example": "`@13w 0colx acsly @13p kdwdw`: map 1436 at 456, 789 as the Session started; 10 s in at 460, 790; then map 1429 at 500, 500, 30 s in.",
+      "decoded": "A case's `expected.routes` gives each Session's route decoded: each sample as [seconds since the Session started, map, x, y]."
+    },
+    "size": {
+      "meaning": "Not a rule: how big the recording gets, after 60 days of daily four-hour play with the route on. Spec #44 aimed at about 1 MB; that aim was dropped for this estimate (2.3 to 3.8 MB for busy play), and retention without the Companion, not the format, is the lever if files prove too big. Worked out by hand from rows like this fixture's; KB and MB are 1,000 and 1,000,000 bytes.",
+      "assumptions": [
+        "One four-hour Session a day for 60 days, with the route on, and no Companion (so nothing is pruned before 60 days).",
+        "SavedVariables writes each string with its newlines escaped, so each row costs its length plus 2 bytes.",
+        "A loot row late in a Session, with a position, one corpse and no cast: an item (`sloot\\tn7200\\tn1436\\tn463\\tn790\\t\\tsitem:2589::::::::60:::::\\tn2\\tsCreature-0-5250-0-12-589-00004F2A3B\\tn2\\t`) is 98 bytes, a coin slot 79. With 3 slots in 5 an item, about 92 bytes a loot row; 8 fewer without the route. Before the loot row left out what its GUID already holds (a kind and an NPC or object ID per corpse), it was about 106.",
+        "Loot: one slot taken every 30 seconds on average (a busy Session of questing and farming, about 1.3 slots a corpse), so 480 a Session. Lighter play scales it down: 240 (one a minute) and 120 are shown too.",
+        "The route: at most one sample every 10 seconds, about 6 bytes each, so at most 1,440 a Session (8.6 KB); always moving is the worst case.",
+        "The rest of a Session: its start row (105 bytes with a seven-digit balance), about 18 zone, instance, afk and back rows (about 29 bytes each), 2 reloads (`sreload\\tn7200\\tn1234567` is 22 bytes, so 24 a row), its end (`send\\tn14400\\tn59\\tn1234567` is 24, so 26) and 2 deaths, each with its `alive` (`sdeath\\tn7200\\tn1436\\tn500\\tn250` is 28, so 30; `salive\\tn7200` is 12, so 14): about 0.8 KB.",
+        "Money: a money row late in a Session (`smoney\\tn7200\\tn1234567`) is 21 bytes, so 23 a row. One per balance change: each coin slot looted (2 slots in 5, as above, so 192 a Session at 480 slots) and about 60 more a Session (quest rewards, the vendor sales and purchases below, repairs, flights, training, mail money, deposits and outbid refunds), so 252 changes a Session at 480 loot slots, 156 at 240, 108 at 120.",
+        "The Ledger: 10 posts, 10 auction mails, 5 vendor purchases and 20 vendor sales (one row a stack sold, buybacks rare) a day, about 70 bytes a row: 45 rows, 3.2 KB a day. `v1.mails`: about 10 keys of about 100 bytes a day, each kept about a month."
+      ],
+      "estimate": [
+        "Loot: 480 × 92 bytes = 44 KB a Session, 2.65 MB in 60 days (1.32 MB at 240 slots a Session, 0.66 MB at 120).",
+        "The route: at most 8.6 KB a Session, 0.52 MB in 60 days.",
+        "Money: 252 × 23 bytes = 5.8 KB a Session, 0.35 MB in 60 days (0.22 MB at 240 loot slots a Session, 0.15 MB at 120).",
+        "The rest of the Sessions: 0.05 MB. The Ledger: 0.19 MB. `v1.mails`: 0.03 MB.",
+        "In all: about 3.8 MB at 480 loot slots a Session, 2.3 MB at 240, 1.6 MB at 120. About 1 MB holds only at about 20 loot slots a Session or fewer: loot, one raw row per slot with a full GUID, is most of the recording, and the 60 days without the Companion make it big. With the Companion linked, pruning keeps only what it hasn't uploaded yet, so the file stays at a few Sessions."
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "a Session through /reload to logout, then a switch to another character",
+      "note": "Session 1 starts at 1793790000 (2026-11-04T11:00:00Z), the account's first, so its ID is 1793790000-1. The /reload's logout at 1793791800 is 1800 s in; the reload turns that provisional end into a reload row. Logout at 1793804400 is 14400 s in, after a level up to 59. The switch's login at 1793804460 starts Session 2, 1793804460-2, which logs out at 1793808060, 3600 s in. PvP Ruleset in EU (region 3); the House is the character's faction's. First Surname holds 1234567 copper (123g 45s 67c) throughout, so its start, reload and end rows end with it; Second Surname holds 2500000 (250g).",
+      "input": {
+        "client": {
+          "name": "First Surname",
+          "realm": "Forever",
+          "class": "WARRIOR",
+          "race": "Human",
+          "faction": "Alliance",
+          "level": 58,
+          "money": 1234567,
+          "region": 3,
+          "gameRules": ["PvPRuleset"]
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793791800, "event": "PLAYER_LOGOUT", "args": [] },
+          { "time": 1793791830, "event": "PLAYER_ENTERING_WORLD", "args": [false, true] },
+          { "time": 1793804400, "event": "PLAYER_LOGOUT", "args": [], "client": { "level": 59 } },
+          {
+            "time": 1793804460,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [true, false],
+            "client": { "name": "Second Surname", "class": "MAGE", "race": "Gnome", "level": 60, "money": 2500000 }
+          },
+          { "time": 1793808060, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 2,
+          "v1": {
+            "current": "1793804460-2",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nsreload\tn1800\tn1234567\nsend\tn14400\tn59\tn1234567",
+              "1793804460-2": "sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\nsend\tn3600\tn60\tn2500000"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 58, "eu", "pvp", "alliance", 1234567],
+            ["reload", 1800, 1234567],
+            ["end", 14400, 59, 1234567]
+          ],
+          "1793804460-2": [
+            ["start", 0, 1793804460, "Second Surname", "Forever", "MAGE", "Gnome", "Alliance", 60, "eu", "pvp", "alliance", 2500000],
+            ["end", 3600, 60, 2500000]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a disconnect after a /reload, then a relog",
+      "note": "Session 1, 1793790000-1, reloads at 1793790600 (600 s in) and then disconnects: no logout, so no end row, and it is read as ending at its last row, 600 s in. The relog at 1793794200 starts Session 2, 1793794200-2, which is still current. No game rule is active, so the Ruleset is Normal; US is region 1. The character holds 85000 copper (8g 50s) throughout.",
+      "input": {
+        "client": {
+          "name": "Third Surname",
+          "realm": "Forever",
+          "class": "WARRIOR",
+          "race": "Orc",
+          "faction": "Horde",
+          "level": 30,
+          "money": 85000,
+          "region": 1,
+          "gameRules": []
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790600, "event": "PLAYER_LOGOUT", "args": [] },
+          { "time": 1793790620, "event": "PLAYER_ENTERING_WORLD", "args": [false, true] },
+          { "time": 1793794200, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 2,
+          "v1": {
+            "current": "1793794200-2",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsThird Surname\tsForever\tsWARRIOR\tsOrc\tsHorde\tn30\tsus\tsnormal\tshorde\tn85000\nsreload\tn600\tn85000",
+              "1793794200-2": "sstart\tn0\tn1793794200\tsThird Surname\tsForever\tsWARRIOR\tsOrc\tsHorde\tn30\tsus\tsnormal\tshorde\tn85000"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Third Surname", "Forever", "WARRIOR", "Orc", "Horde", 30, "us", "normal", "horde", 85000],
+            ["reload", 600, 85000]
+          ],
+          "1793794200-2": [
+            ["start", 0, 1793794200, "Third Surname", "Forever", "WARRIOR", "Orc", "Horde", 30, "us", "normal", "horde", 85000]
+          ]
+        }
+      }
+    },
+    {
+      "name": "zones, a dungeon and AFK in a Session",
+      "note": "Session 1793790000-1 starts in Elwynn Forest (uiMapID 1429): a zone row 0 s in. Westfall (1436) at 1793790900 is 900 s in. AFK on at 1793791200 (1200 s) and off at 1793791500 (1500 s): one span of 300 s; a flags change for a party member adds nothing. The loading screen into The Deadmines (instance 36, party, difficulty 1) at 1793791800 is 1800 s in; its lower floor (map 292) at 1793792400 is the same stop, so no row. Out to Westfall at 1793793600, 3600 s in: a new stop, as the dungeon came between. AFK on at 1793794200 (4200 s) is still on at the logout at 1793795400 (5400 s), so that span ends at the end row: 1200 s. EU (region 3), the game rules API with none active: Normal. The character holds 9876 copper (98s 76c) throughout.",
+      "input": {
+        "client": {
+          "name": "First Surname",
+          "realm": "Forever",
+          "class": "WARRIOR",
+          "race": "Human",
+          "faction": "Alliance",
+          "level": 20,
+          "money": 9876,
+          "region": 3,
+          "gameRules": [],
+          "map": { "id": 1429, "name": "Elwynn Forest", "type": 3 },
+          "instance": false,
+          "afk": false
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          {
+            "time": 1793790900,
+            "event": "ZONE_CHANGED_NEW_AREA",
+            "args": [],
+            "client": { "map": { "id": 1436, "name": "Westfall", "type": 3 } }
+          },
+          { "time": 1793791200, "event": "PLAYER_FLAGS_CHANGED", "args": ["player"], "client": { "afk": true } },
+          { "time": 1793791300, "event": "PLAYER_FLAGS_CHANGED", "args": ["party1"] },
+          { "time": 1793791500, "event": "PLAYER_FLAGS_CHANGED", "args": ["player"], "client": { "afk": false } },
+          {
+            "time": 1793791800,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [false, false],
+            "client": {
+              "map": { "id": 291, "name": "The Deadmines", "type": 4 },
+              "instance": { "name": "The Deadmines", "type": "party", "difficultyID": 1, "instanceID": 36 }
+            }
+          },
+          {
+            "time": 1793792400,
+            "event": "ZONE_CHANGED_NEW_AREA",
+            "args": [],
+            "client": { "map": { "id": 292, "name": "The Deadmines", "type": 4 } }
+          },
+          {
+            "time": 1793793600,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [false, false],
+            "client": { "map": { "id": 1436, "name": "Westfall", "type": 3 }, "instance": false }
+          },
+          { "time": 1793794200, "event": "PLAYER_FLAGS_CHANGED", "args": ["player"], "client": { "afk": true } },
+          { "time": 1793795400, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn20\tseu\tsnormal\tsalliance\tn9876\nszone\tn0\tn1429\tsElwynn Forest\nszone\tn900\tn1436\tsWestfall\nsafk\tn1200\nsback\tn1500\nsinstance\tn1800\tn36\tsThe Deadmines\tsparty\tn1\nszone\tn3600\tn1436\tsWestfall\nsafk\tn4200\nsend\tn5400\tn20\tn9876"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 20, "eu", "normal", "alliance", 9876],
+            ["zone", 0, 1429, "Elwynn Forest"],
+            ["zone", 900, 1436, "Westfall"],
+            ["afk", 1200],
+            ["back", 1500],
+            ["instance", 1800, 36, "The Deadmines", "party", 1],
+            ["zone", 3600, 1436, "Westfall"],
+            ["afk", 4200],
+            ["end", 5400, 20, 9876]
+          ]
+        }
+      }
+    },
+    {
+      "name": "deaths in a Session: a release and a corpse run, a resurrection in a dungeon, and a death with no return before logout",
+      "note": "`ghost` is whether the client says the player is a ghost. Record route is on. Session 1793790000-1 starts in Westfall (map 1436, 13w) at 0.456, 0.789: a zone row 0 s in, and the route starts `@13w 0colx`. The player dies 300 s in at 0.5, 0.25: death with map 1436 at 500, 250. The release to ghost 310 s in fires PLAYER_ALIVE as a ghost: nothing. Back at the corpse 420 s in: PLAYER_UNGHOST adds alive at 420; the PLAYER_ALIVE after it adds nothing, as the player is already alive. The Deadmines (instance 36, party, difficulty 1, its floor map 291) entered 1800 s in: an instance row and no position, so no sample. A death there 2400 s in has the floor's map, 291, and no position. A party member's resurrection 2430 s in fires PLAYER_ALIVE, not a ghost: alive at 2430. Out to Westfall 3600 s in at 0.4, 0.6: a zone row, and a sample 3600 s (2s0: 2×1296 + 28×36) after the last, at 400 (b4: 11×36+4), 600 (go: 16×36+24), on map 1436 as before, so no `@`: `2s0b4go`. The player dies there 4200 s in, at 400, 600, and is still dead at the logout 4500 s in: the end row is last, and that span ends with the Session. US (region 1), Normal. The character holds 23456 copper (2g 34s 56c) throughout.",
+      "input": {
+        "settings": { "recordRoute": true },
+        "client": {
+          "name": "Sixth Surname",
+          "realm": "Forever",
+          "class": "PRIEST",
+          "race": "Dwarf",
+          "faction": "Alliance",
+          "level": 25,
+          "money": 23456,
+          "region": 1,
+          "gameRules": [],
+          "map": { "id": 1436, "name": "Westfall", "type": 3 },
+          "position": [0.456, 0.789],
+          "instance": false,
+          "afk": false,
+          "ghost": false
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790300, "event": "PLAYER_DEAD", "args": [], "client": { "position": [0.5, 0.25] } },
+          { "time": 1793790310, "event": "PLAYER_ALIVE", "args": [], "client": { "ghost": true } },
+          { "time": 1793790420, "event": "PLAYER_UNGHOST", "args": [], "client": { "ghost": false } },
+          { "time": 1793790420, "event": "PLAYER_ALIVE", "args": [] },
+          {
+            "time": 1793791800,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [false, false],
+            "client": {
+              "map": { "id": 291, "name": "The Deadmines", "type": 4 },
+              "instance": { "name": "The Deadmines", "type": "party", "difficultyID": 1, "instanceID": 36 },
+              "position": false
+            }
+          },
+          { "time": 1793792400, "event": "PLAYER_DEAD", "args": [] },
+          { "time": 1793792430, "event": "PLAYER_ALIVE", "args": [] },
+          {
+            "time": 1793793600,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [false, false],
+            "client": { "map": { "id": 1436, "name": "Westfall", "type": 3 }, "instance": false, "position": [0.4, 0.6] }
+          },
+          { "time": 1793794200, "event": "PLAYER_DEAD", "args": [] },
+          { "time": 1793794500, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsSixth Surname\tsForever\tsPRIEST\tsDwarf\tsAlliance\tn25\tsus\tsnormal\tsalliance\tn23456\nszone\tn0\tn1436\tsWestfall\nsdeath\tn300\tn1436\tn500\tn250\nsalive\tn420\nsinstance\tn1800\tn36\tsThe Deadmines\tsparty\tn1\nsdeath\tn2400\tn291\t\t\nsalive\tn2430\nszone\tn3600\tn1436\tsWestfall\nsdeath\tn4200\tn1436\tn400\tn600\nsend\tn4500\tn25\tn23456"
+            },
+            "routes": {
+              "1793790000-1": "@13w 0colx 2s0b4go"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Sixth Surname", "Forever", "PRIEST", "Dwarf", "Alliance", 25, "us", "normal", "alliance", 23456],
+            ["zone", 0, 1436, "Westfall"],
+            ["death", 300, 1436, 500, 250],
+            ["alive", 420],
+            ["instance", 1800, 36, "The Deadmines", "party", 1],
+            ["death", 2400, 291, null, null],
+            ["alive", 2430],
+            ["zone", 3600, 1436, "Westfall"],
+            ["death", 4200, 1436, 400, 600],
+            ["end", 4500, 25, 23456]
+          ]
+        },
+        "routes": {
+          "1793790000-1": [
+            [0, 1436, 456, 789],
+            [3600, 1436, 400, 600]
+          ]
+        }
+      }
+    },
+    {
+      "name": "sale, expiry and cancellation mails, each recorded once over three openings on two days",
+      "note": "The mails are Ledger rows of First Surname-Forever, timed in server time; the Sessions hold only their start and end. Mailbox entries are what the client's GetInboxHeaderInfo (sender, subject, money, days left), GetInboxInvoiceInfo (invoice: type, item name, buyer, bid, buyout, deposit, AH cut, money delay, eta hour, eta minute, count) and GetInboxItemLink/GetInboxItem (items) return, in inbox order. Opening 1 at 1793790600, in Session 1793790000-1. Expired: 1793790600 + 29.99 days (2591136 s) = 1796381736, minute 29939695.6, so 1796381760. Cancelled: + 29.5 days (2548800 s) = 1796339400. Sale Pending: + 29.95 days (2587680 s) = 1796378280. The letter from a player (not one of the account's characters) and the quest reward are received, with no name: + 29.9 days (2583360 s) = 1796373960, a whole minute. Reading its mailbox in a Session, the character is remembered in `v1.characters` with its Region and Ruleset. Opening 2 at 1793791464 (864 s = 0.01 days later): the expired mail's items were taken, so it's gone; the others have 0.01 days less left and give the same expiries (29.49 days = 2547936 s, 29.94 days = 2586816 s), (29.89 days = 2582496 s gives 1796373960 again), so only the new sale is recorded: 1793791464 + 29.995 days (2591568 s) = 1796383032, minute 29939717.2, so 1796383020. Its money is the buyout less the 5% AH cut plus the deposit: 2000 - 100 + 60 = 1960. Logout at 1793794800, 4800 s in. The next day's login at 1793876400 starts Session 1793876400-2; opening 3 at 1793877000 (86400 s after opening 1, 85536 s = 0.99 days after opening 2) finds the same mails, which again give the same expiries (28.5 days = 2462400 s, 28.95 days = 2501280 s, 29.005 days = 2506032 s, 28.9 days = 2496960 s), so records nothing. Logout at 1793880000, 3600 s in. The character holds 1234567 copper throughout: the mails' money isn't taken.",
+      "input": {
+        "client": {
+          "name": "First Surname",
+          "realm": "Forever",
+          "class": "WARRIOR",
+          "race": "Human",
+          "faction": "Alliance",
+          "level": 60,
+          "money": 1234567,
+          "region": 3,
+          "gameRules": ["PvPRuleset"]
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          {
+            "time": 1793790600,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction expired: Linen Cloth", "money": 0, "daysLeft": 29.99,
+                  "items": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 }]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction cancelled: Heavy Leather", "money": 0, "daysLeft": 29.5,
+                  "items": [{ "link": "|cffffffff|Hitem:4234::::::::60:::::|h[Heavy Leather]|h|r", "count": 5 }]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Sale Pending: Silk Cloth", "money": 0, "daysLeft": 29.95,
+                  "invoice": ["seller_temp_invoice", "Silk Cloth", "Buyer Name", 1800, 2000, 60, 100, 3600, 12, 10, 20]
+                },
+                {
+                  "sender": "Some Player", "subject": "Linen for you", "money": 1000, "daysLeft": 29.9,
+                  "items": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 5 }]
+                },
+                {
+                  "sender": "Quartermaster", "canReply": false, "subject": "Your reward", "money": 0, "daysLeft": 29.9,
+                  "items": [{ "link": "|cffffffff|Hitem:6948::::::::60:::::|h[Hearthstone]|h|r", "count": 1 }]
+                }
+              ]
+            }
+          },
+          {
+            "time": 1793791464,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction successful: Silk Cloth", "money": 1960, "daysLeft": 29.995,
+                  "invoice": ["seller", "Silk Cloth", "Buyer Name", 1800, 2000, 60, 100, 0, 0, 0, 20]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction cancelled: Heavy Leather", "money": 0, "daysLeft": 29.49,
+                  "items": [{ "link": "|cffffffff|Hitem:4234::::::::60:::::|h[Heavy Leather]|h|r", "count": 5 }]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Sale Pending: Silk Cloth", "money": 0, "daysLeft": 29.94,
+                  "invoice": ["seller_temp_invoice", "Silk Cloth", "Buyer Name", 1800, 2000, 60, 100, 3600, 12, 10, 20]
+                },
+                {
+                  "sender": "Some Player", "subject": "Linen for you", "money": 1000, "daysLeft": 29.89,
+                  "items": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 5 }]
+                },
+                {
+                  "sender": "Quartermaster", "canReply": false, "subject": "Your reward", "money": 0, "daysLeft": 29.89,
+                  "items": [{ "link": "|cffffffff|Hitem:6948::::::::60:::::|h[Hearthstone]|h|r", "count": 1 }]
+                }
+              ]
+            }
+          },
+          { "time": 1793794800, "event": "PLAYER_LOGOUT", "args": [] },
+          { "time": 1793876400, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          {
+            "time": 1793877000,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction successful: Silk Cloth", "money": 1960, "daysLeft": 29.005,
+                  "invoice": ["seller", "Silk Cloth", "Buyer Name", 1800, 2000, 60, 100, 0, 0, 0, 20]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction cancelled: Heavy Leather", "money": 0, "daysLeft": 28.5,
+                  "items": [{ "link": "|cffffffff|Hitem:4234::::::::60:::::|h[Heavy Leather]|h|r", "count": 5 }]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Sale Pending: Silk Cloth", "money": 0, "daysLeft": 28.95,
+                  "invoice": ["seller_temp_invoice", "Silk Cloth", "Buyer Name", 1800, 2000, 60, 100, 3600, 12, 10, 20]
+                },
+                {
+                  "sender": "Some Player", "subject": "Linen for you", "money": 1000, "daysLeft": 28.9,
+                  "items": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 5 }]
+                },
+                {
+                  "sender": "Quartermaster", "canReply": false, "subject": "Your reward", "money": 0, "daysLeft": 28.9,
+                  "items": [{ "link": "|cffffffff|Hitem:6948::::::::60:::::|h[Hearthstone]|h|r", "count": 1 }]
+                }
+              ]
+            }
+          },
+          { "time": 1793880000, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 2,
+          "v1": {
+            "current": "1793876400-2",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn4800\tn60\tn1234567",
+              "1793876400-2": "sstart\tn0\tn1793876400\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn3600\tn60\tn1234567"
+            },
+            "mails": {
+              "n1796381760\tsFirst Surname\tsForever\tsAuction expired: Linen Cloth\tn0\tsitem:2589::::::::60:::::\tn20": 1,
+              "n1796339400\tsFirst Surname\tsForever\tsAuction cancelled: Heavy Leather\tn0\tsitem:4234::::::::60:::::\tn5": 1,
+              "n1796378280\tsFirst Surname\tsForever\tsSale Pending: Silk Cloth\tn0": 1,
+              "n1796383020\tsFirst Surname\tsForever\tsAuction successful: Silk Cloth\tn1960": 1,
+              "n1796373960\tsFirst Surname\tsForever\t\t\tsitem:2589::::::::60:::::\tn5": 1,
+              "n1796373960\tsFirst Surname\tsForever\t\t\tsitem:6948::::::::60:::::\tn1": 1
+            },
+            "characters": {
+              "First Surname-Forever": "seu\tspvp"
+            },
+            "ledger": {
+              "First Surname-Forever": "sexpired\tn1793790600\tn1796381760\tsitem:2589::::::::60:::::\tn20\nscancelled\tn1793790600\tn1796339400\tsitem:4234::::::::60:::::\tn5\nssalePending\tn1793790600\tn1796378280\tsSilk Cloth\tn20\tn1800\tn2000\tn100\tn60\nsreceived\tn1793790600\tn1796373960\tsitem:2589::::::::60:::::\tn5\nsreceived\tn1793790600\tn1796373960\tsitem:6948::::::::60:::::\tn1\nssale\tn1793791464\tn1796383020\tsSilk Cloth\tn20\tn1800\tn2000\tn100\tn60"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["end", 4800, 60, 1234567]
+          ],
+          "1793876400-2": [
+            ["start", 0, 1793876400, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["end", 3600, 60, 1234567]
+          ]
+        },
+        "ledger": {
+          "First Surname-Forever": [
+            ["expired", 1793790600, 1796381760, "item:2589::::::::60:::::", 20],
+            ["cancelled", 1793790600, 1796339400, "item:4234::::::::60:::::", 5],
+            ["salePending", 1793790600, 1796378280, "Silk Cloth", 20, 1800, 2000, 100, 60],
+            ["received", 1793790600, 1796373960, "item:2589::::::::60:::::", 5],
+            ["received", 1793790600, 1796373960, "item:6948::::::::60:::::", 1],
+            ["sale", 1793791464, 1796383020, "Silk Cloth", 20, 1800, 2000, 100, 60]
+          ]
+        }
+      }
+    },
+    {
+      "name": "loot from a corpse with a slot left behind, a skinning, a herb node, a disenchant and a fishing catch",
+      "note": "Session 1793790000-1 starts in Westfall (map 1436): a zone row 0 s in. `lootWindow` is what the open loot window holds: each slot's item link and quantity, or its coin text (12 Silver 5 Copper is 1205 copper), and what it was looted from (`lootedFrom`) as GetLootSourceInfo gives it (GUID, quantity, ...). The Defias Pillager (NPC 589) window follows a Sinister Strike (1752), so its three taken slots carry 1752; the Rough Stone in slot 3 is left. The Coyote (NPC 833) is skinned (8613), the Peacebloom node (object 1618) gathered (2366). The disenchant (13262) takes Item GUID Item-5250-0-400000000A1B2C3D, which the client says is item 15268. The player enters Elwynn Forest (map 1429) at 1793790450, 450 s in; the fishing catch (7620) there carries its map. The client names the bobber as looted from, but fishing records nothing there. Logout at 1793790600, 600 s in. The character logs in holding 4310 copper (43s 10c), the start row's; the login's own PLAYER_MONEY leaves it so, adding nothing. The coin slot taken 114 s in brings it to 4310 + 1205 = 5515: one money row, and the end row's.",
+      "input": {
+        "client": {
+          "name": "Fourth Surname",
+          "realm": "Forever",
+          "class": "ROGUE",
+          "race": "Dwarf",
+          "faction": "Alliance",
+          "level": 20,
+          "money": 4310,
+          "region": 1,
+          "gameRules": [],
+          "map": { "id": 1436, "name": "Westfall", "type": 3 },
+          "instance": false,
+          "afk": false
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790000, "event": "PLAYER_MONEY", "args": [] },
+          { "time": 1793790100, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-1752-0000ABCDEF", 1752] },
+          {
+            "time": 1793790110,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:2589::::::::20|h[Linen Cloth]|h|r", "quantity": 2, "lootedFrom": ["Creature-0-5250-0-12-589-00004F2A3B", 2] },
+                { "link": "|cff1eff00|Hitem:15268::::::1192::20|h[Twin-bladed Axe of the Monkey]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-5250-0-12-589-00004F2A3B", 1] },
+                { "link": "|cffffffff|Hitem:2835::::::::20|h[Rough Stone]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-5250-0-12-589-00004F2A3B", 1] },
+                { "coin": "12 Silver\n5 Copper", "lootedFrom": ["Creature-0-5250-0-12-589-00004F2A3B", 1205] }
+              ]
+            }
+          },
+          { "time": 1793790110, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790112, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790113, "event": "LOOT_SLOT_CLEARED", "args": [2] },
+          { "time": 1793790114, "event": "LOOT_SLOT_CLEARED", "args": [4] },
+          { "time": 1793790114, "event": "PLAYER_MONEY", "args": [], "client": { "money": 5515 } },
+          { "time": 1793790115, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790200, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-8613-0000ABCDF0", 8613] },
+          {
+            "time": 1793790201,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:2318::::::::20|h[Light Leather]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-5250-0-12-833-00004F2A42", 1] }
+              ]
+            }
+          },
+          { "time": 1793790201, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790202, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790202, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790300, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-2366-0000ABCDF1", 2366] },
+          {
+            "time": 1793790302,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:2447::::::::20|h[Peacebloom]|h|r", "quantity": 2, "lootedFrom": ["GameObject-0-5250-0-12-1618-00004F2A43", 2] }
+              ]
+            }
+          },
+          { "time": 1793790302, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790303, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790303, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790400, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-13262-0000ABCDF2", 13262] },
+          {
+            "time": 1793790401,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:10940::::::::20|h[Strange Dust]|h|r", "quantity": 2, "lootedFrom": ["Item-5250-0-400000000A1B2C3D", 2] }
+              ],
+              "itemIDs": { "Item-5250-0-400000000A1B2C3D": 15268 }
+            }
+          },
+          { "time": 1793790401, "event": "LOOT_OPENED", "args": [false, true] },
+          { "time": 1793790402, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790402, "event": "LOOT_CLOSED", "args": [] },
+          {
+            "time": 1793790450,
+            "event": "ZONE_CHANGED_NEW_AREA",
+            "args": [],
+            "client": { "map": { "id": 1429, "name": "Elwynn Forest", "type": 3 } }
+          },
+          { "time": 1793790500, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-7620-0000ABCDF3", 7620] },
+          {
+            "time": 1793790520,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:6291::::::::20|h[Raw Brilliant Smallfish]|h|r", "quantity": 1, "lootedFrom": ["GameObject-0-5250-0-12-35591-00004F2A44", 1] }
+              ],
+              "fishing": true
+            }
+          },
+          { "time": 1793790520, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790521, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790521, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790600, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsloot\tn114\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsmoney\tn114\tn5515\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Fourth Surname", "Forever", "ROGUE", "Dwarf", "Alliance", 20, "us", "normal", "alliance", 4310],
+            ["zone", 0, 1436, "Westfall"],
+            ["loot", 112, 1436, null, null, 1752, "item:2589::::::::20", 2, "Creature-0-5250-0-12-589-00004F2A3B", 2, null],
+            ["loot", 113, 1436, null, null, 1752, "item:15268::::::1192::20", 1, "Creature-0-5250-0-12-589-00004F2A3B", 1, null],
+            ["loot", 114, 1436, null, null, 1752, null, 1205, "Creature-0-5250-0-12-589-00004F2A3B", 1205, null],
+            ["money", 114, 5515],
+            ["loot", 202, 1436, null, null, 8613, "item:2318::::::::20", 1, "Creature-0-5250-0-12-833-00004F2A42", 1, null],
+            ["loot", 303, 1436, null, null, 2366, "item:2447::::::::20", 2, "GameObject-0-5250-0-12-1618-00004F2A43", 2, null],
+            ["loot", 402, 1436, null, null, 13262, "item:10940::::::::20", 2, "Item-5250-0-400000000A1B2C3D", 2, 15268],
+            ["zone", 450, 1429, "Elwynn Forest"],
+            ["loot", 521, 1429, null, null, 7620, "item:6291::::::::20", 1],
+            ["end", 600, 20, 5515]
+          ]
+        }
+      }
+    },
+    {
+      "name": "posts on the auction house: a Variant as an item, and a commodity, at the faction House and at a Neutral one",
+      "note": "The client's deposit functions answer for the whole post. 1793790600: one Ridge Cleaver of the Monkey, its suffix as bonus IDs (2:6654:1676), posted as an item for 24 hours (duration 2), 9000 bid, 12000 buyout; confirmed at 1793790601: 1 stack of 1, deposit 150. 1793790660: 20 Linen Cloth as a commodity for 12 hours (duration 1) at 45 a unit: one stack of 20, no bid, buyout 45 × 20 = 900, deposit 100 (at least 1 silver); confirmed at 1793790661. Both at the Alliance auctioneer: the map isn't a Neutral zone, so the House is the character's faction's, alliance. 1793794200: the player enters Stranglethorn Vale (1434, a zone), a zone row 4200 s in. 1793794260: 20 more Linen Cloth posted as before, confirmed at 1793794261 at Booty Bay's auctioneer, in a Neutral zone: House neutral. Ledger key First Surname-Forever. The Session (EU, PvP) hasn't ended; its start row's House stays alliance. Its start row holds the 1234567 copper on hand at login; the PLAYER_MONEY the deposits bring isn't part of this case.",
+      "input": {
+        "client": {
+          "name": "First Surname",
+          "realm": "Forever",
+          "class": "WARRIOR",
+          "race": "Human",
+          "faction": "Alliance",
+          "level": 60,
+          "money": 1234567,
+          "region": 3,
+          "gameRules": ["PvPRuleset"],
+          "bag": [
+            { "itemID": 15268, "itemString": "item:15268::::::::60::::2:6654:1676", "name": "Ridge Cleaver of the Monkey" },
+            { "itemID": 2589, "itemString": "item:2589::::::::60:::::", "name": "Linen Cloth" }
+          ]
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          {
+            "time": 1793790600,
+            "call": "C_AuctionHouse.PostItem",
+            "args": [{ "bagID": 0, "slotIndex": 1 }, 2, 1, 9000, 12000],
+            "client": { "deposit": 150 }
+          },
+          { "time": 1793790601, "event": "AUCTION_HOUSE_AUCTION_CREATED", "args": [5001] },
+          {
+            "time": 1793790660,
+            "call": "C_AuctionHouse.PostCommodity",
+            "args": [{ "bagID": 0, "slotIndex": 2 }, 1, 20, 45],
+            "client": { "deposit": 100 }
+          },
+          { "time": 1793790661, "event": "AUCTION_HOUSE_AUCTION_CREATED", "args": [5002] },
+          {
+            "time": 1793794200,
+            "event": "ZONE_CHANGED_NEW_AREA",
+            "args": [],
+            "client": { "map": { "id": 1434, "name": "Stranglethorn Vale", "type": 3 } }
+          },
+          {
+            "time": 1793794260,
+            "call": "C_AuctionHouse.PostCommodity",
+            "args": [{ "bagID": 0, "slotIndex": 2 }, 1, 20, 45],
+            "client": { "deposit": 100 }
+          },
+          { "time": 1793794261, "event": "AUCTION_HOUSE_AUCTION_CREATED", "args": [5003] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nszone\tn4200\tn1434\tsStranglethorn Vale"
+            },
+            "ledger": {
+              "First Surname-Forever": "spost\tn1793790601\tsitem:15268::::::::60::::2:6654:1676\tn1\tn1\tn9000\tn12000\tn24\tn150\tsalliance\nspost\tn1793790661\tsitem:2589::::::::60:::::\tn20\tn1\t\tn900\tn12\tn100\tsalliance\nspost\tn1793794261\tsitem:2589::::::::60:::::\tn20\tn1\t\tn900\tn12\tn100\tsneutral"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["zone", 4200, 1434, "Stranglethorn Vale"]
+          ]
+        },
+        "ledger": {
+          "First Surname-Forever": [
+            ["post", 1793790601, "item:15268::::::::60::::2:6654:1676", 1, 1, 9000, 12000, 24, 150, "alliance"],
+            ["post", 1793790661, "item:2589::::::::60:::::", 20, 1, null, 900, 12, 100, "alliance"],
+            ["post", 1793794261, "item:2589::::::::60:::::", 20, 1, null, 900, 12, 100, "neutral"]
+          ]
+        }
+      }
+    },
+    {
+      "name": "purchases from a vendor (3 sets of 5, one paid in a currency), a sale to the vendor bought back, and purchases from the AH (a buyout of a Variant, a won bid), each mail recorded once over two openings",
+      "note": "Purchases and sales are Ledger rows of First Surname-Forever, in server time; the Session holds only its start and end. `merchant` is the merchant's stock as GetMerchantItemLink and C_MerchantFrame.GetItemInfo give it: each item's link, its price in copper for one set, the set's size and whether it costs items or currencies. `bag` is bag 0 as C_Container.GetContainerItemInfo gives it, each slot's link and count, with each item's sell price as GetItemInfo gives it; `buyback` is the merchant's buyback list as GetBuybackItemLink and GetBuybackItemInfo give it: each item's link, the copper to buy it back and the quantity. The merchant window opens at 1793790290 (MERCHANT_SHOW). 1793790300: BuyMerchantItem(1, 15) buys 15 Mild Spices, three sets of 5 at 50 copper a set: 15 units, 50 / 5 × 15 = 150 copper, not paid in a currency. 1793790310: BuyMerchantItem(2, 1) buys one Badge of Justice for a currency only (price 0): 1 unit, no copper, paid in a currency. 1793790315: C_Container.UseContainerItem(0, 1) sells bag 0's slot 1, 5 Linen Cloth at a sell price of 13 copper: 5 units, 13 × 5 = 65 copper received. 1793790320: BuybackItem(1) buys back those 5 Linen Cloth for the 65 copper: a `buyback` row, no `vendorBought`. The merchant window closes at 1793790330 (MERCHANT_CLOSED); using the same slot at 1793790340 sells nothing: no row. Opening 1 at 1793790600 holds two \"Auction won\" mails with buyer invoices (type, item name, seller, bid, buyout, deposit, AH cut, money delay, eta hour, eta minute, count): a Ridge Cleaver of the Monkey, its suffix as bonus IDs, bought out at 12000 (bid = buyout), 29.5 days left: 1793790600 + 2548800 s = 1796339400; and 20 Linen Cloth won with a bid of 900 against a 1000 buyout, 29.99 days left: 1793790600 + 2591136 s = 1796381736, minute 29939695.6, so 1796381760. Opening 2 at 1793791464 (0.01 days later) finds both with 0.01 days less left: 1793791464 + 29.49 days (2547936 s) = 1796339400 and + 29.98 days (2590272 s) = 1796381736, so 1796381760: the same mails, so nothing more. The sellers' names are never recorded. Reading its mailbox in a Session, the character is remembered in `v1.characters`. Logout at 1793794800, 4800 s in. The start and end rows hold the 1234567 copper on hand; the PLAYER_MONEY the purchases, the sale and the buyback bring isn't part of this case.",
+      "input": {
+        "client": {
+          "name": "First Surname",
+          "realm": "Forever",
+          "class": "WARRIOR",
+          "race": "Human",
+          "faction": "Alliance",
+          "level": 60,
+          "money": 1234567,
+          "region": 3,
+          "gameRules": ["PvPRuleset"],
+          "merchant": [
+            { "link": "|cffffffff|Hitem:2678::::::::60:::::|h[Mild Spices]|h|r", "price": 50, "stackCount": 5, "extendedCost": false },
+            { "link": "|cffa335ee|Hitem:29434::::::::60:::::|h[Badge of Justice]|h|r", "price": 0, "stackCount": 1, "extendedCost": true }
+          ],
+          "bag": [
+            { "itemID": 2589, "itemString": "item:2589::::::::60:::::", "name": "Linen Cloth", "count": 5, "sellPrice": 13 }
+          ]
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790290, "event": "MERCHANT_SHOW", "args": [] },
+          { "time": 1793790300, "call": "BuyMerchantItem", "args": [1, 15] },
+          { "time": 1793790310, "call": "BuyMerchantItem", "args": [2, 1] },
+          { "time": 1793790315, "call": "C_Container.UseContainerItem", "args": [0, 1] },
+          {
+            "time": 1793790320,
+            "call": "BuybackItem",
+            "args": [1],
+            "client": {
+              "buyback": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "price": 65, "quantity": 5 }]
+            }
+          },
+          { "time": 1793790330, "event": "MERCHANT_CLOSED", "args": [] },
+          { "time": 1793790340, "call": "C_Container.UseContainerItem", "args": [0, 1] },
+          {
+            "time": 1793790600,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction won: Ridge Cleaver of the Monkey", "money": 0, "daysLeft": 29.5,
+                  "items": [{ "link": "|cff1eff00|Hitem:15268::::::::60::::2:6654:1676|h[Ridge Cleaver of the Monkey]|h|r", "count": 1 }],
+                  "invoice": ["buyer", "Ridge Cleaver of the Monkey", "Seller Name", 12000, 12000, 0, 0, 0, 0, 0, 1]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction won: Linen Cloth", "money": 0, "daysLeft": 29.99,
+                  "items": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 }],
+                  "invoice": ["buyer", "Linen Cloth", "Other Seller", 900, 1000, 0, 0, 0, 0, 0, 20]
+                }
+              ]
+            }
+          },
+          {
+            "time": 1793791464,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction won: Ridge Cleaver of the Monkey", "money": 0, "daysLeft": 29.49,
+                  "items": [{ "link": "|cff1eff00|Hitem:15268::::::::60::::2:6654:1676|h[Ridge Cleaver of the Monkey]|h|r", "count": 1 }],
+                  "invoice": ["buyer", "Ridge Cleaver of the Monkey", "Seller Name", 12000, 12000, 0, 0, 0, 0, 0, 1]
+                },
+                {
+                  "sender": "Alliance Auction House", "canReply": false, "subject": "Auction won: Linen Cloth", "money": 0, "daysLeft": 29.98,
+                  "items": [{ "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 }],
+                  "invoice": ["buyer", "Linen Cloth", "Other Seller", 900, 1000, 0, 0, 0, 0, 0, 20]
+                }
+              ]
+            }
+          },
+          { "time": 1793794800, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn4800\tn60\tn1234567"
+            },
+            "mails": {
+              "n1796339400\tsFirst Surname\tsForever\tsAuction won: Ridge Cleaver of the Monkey\tn0\tsitem:15268::::::::60::::2:6654:1676\tn1": 1,
+              "n1796381760\tsFirst Surname\tsForever\tsAuction won: Linen Cloth\tn0\tsitem:2589::::::::60:::::\tn20": 1
+            },
+            "characters": {
+              "First Surname-Forever": "seu\tspvp"
+            },
+            "ledger": {
+              "First Surname-Forever": "svendorBought\tn1793790300\tsitem:2678::::::::60:::::\tn15\tn150\tf\nsvendorBought\tn1793790310\tsitem:29434::::::::60:::::\tn1\t\tt\nsvendorSold\tn1793790315\tsitem:2589::::::::60:::::\tn5\tn65\nsbuyback\tn1793790320\tsitem:2589::::::::60:::::\tn5\tn65\nsbought\tn1793790600\tn1796339400\tsitem:15268::::::::60::::2:6654:1676\tn1\tn12000\tn12000\nsbought\tn1793790600\tn1796381760\tsitem:2589::::::::60:::::\tn20\tn900\tn1000"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["end", 4800, 60, 1234567]
+          ]
+        },
+        "ledger": {
+          "First Surname-Forever": [
+            ["vendorBought", 1793790300, "item:2678::::::::60:::::", 15, 150, false],
+            ["vendorBought", 1793790310, "item:29434::::::::60:::::", 1, null, true],
+            ["vendorSold", 1793790315, "item:2589::::::::60:::::", 5, 65],
+            ["buyback", 1793790320, "item:2589::::::::60:::::", 5, 65],
+            ["bought", 1793790600, 1796339400, "item:15268::::::::60::::2:6654:1676", 1, 12000, 12000],
+            ["bought", 1793790600, 1796381760, "item:2589::::::::60:::::", 20, 900, 1000]
+          ]
+        }
+      }
+    },
+    {
+      "name": "the route, with Record route on: samples while the player moves, none standing still or in a dungeon, through a /reload, and loot positions",
+      "note": "`settings` are the saved settings at login; `position` is where the client puts the player on their map (none inside an instance); a `timer` step is the addon's 10-second timer firing. Session 1793790000-1 starts in Westfall (map 1436, 13w in base 36) at 0.456, 0.789: 456 = 12×36+24 (co), 789 = 21×36+33 (lx), so the route starts `@13w 0colx`. 10 s in: 460 (cs), 790 (ly), 10 s after the last sample: `acsly`. 20 s in the player hasn't moved: nothing. The loot taken 26 s in, at 0.4626, 0.7904, carries 463, 790. At the timer 30 s in the player is still there, 20 s (k) after the last sample: 463 = 12×36+31 (cv): `kcvly`. The Deadmines (instance 36, entered 40 s in, its floor map 291) gives no position: no samples, and the loot taken there 56 s in has none. The /reload 60 s in turns the logout's end into a reload row. Leaving 100 s in, the player is back at 463, 790 on map 1436, as at the last sample: nothing. 110 s in at 0.5, 0.5, 80 s (28) after the last sample: `28dwdw`. 120 s in the player enters Elwynn Forest (map 1429, 13p) at 0.25, 0.75: 250 = 6×36+34 (6y), 750 = 20×36+30 (ku), 10 s after the last sample: `@13p a6yku`. 130 s in, standing still: nothing. Logout 140 s in. The character holds 61000 copper (6g 10s) throughout.",
+      "input": {
+        "settings": { "recordRoute": true },
+        "client": {
+          "name": "Fifth Surname",
+          "realm": "Forever",
+          "class": "HUNTER",
+          "race": "NightElf",
+          "faction": "Alliance",
+          "level": 30,
+          "money": 61000,
+          "region": 1,
+          "gameRules": [],
+          "map": { "id": 1436, "name": "Westfall", "type": 3 },
+          "position": [0.456, 0.789],
+          "instance": false,
+          "afk": false
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790010, "timer": true, "client": { "position": [0.46, 0.79] } },
+          { "time": 1793790020, "timer": true },
+          {
+            "time": 1793790025,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "position": [0.4626, 0.7904],
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:2589::::::::30|h[Linen Cloth]|h|r", "quantity": 2, "lootedFrom": ["Creature-0-5250-0-12-589-00004F2A3B", 2] }
+              ]
+            }
+          },
+          { "time": 1793790025, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790026, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790026, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790030, "timer": true },
+          {
+            "time": 1793790040,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [false, false],
+            "client": {
+              "map": { "id": 291, "name": "The Deadmines", "type": 4 },
+              "instance": { "name": "The Deadmines", "type": "party", "difficultyID": 1, "instanceID": 36 },
+              "position": false
+            }
+          },
+          { "time": 1793790050, "timer": true },
+          {
+            "time": 1793790055,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cffffffff|Hitem:2589::::::::30|h[Linen Cloth]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-5250-36-77-634-00004F2A50", 1] }
+              ]
+            }
+          },
+          { "time": 1793790055, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790056, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790056, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790060, "event": "PLAYER_LOGOUT", "args": [] },
+          { "time": 1793790060, "event": "PLAYER_ENTERING_WORLD", "args": [false, true] },
+          {
+            "time": 1793790100,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [false, false],
+            "client": { "map": { "id": 1436, "name": "Westfall", "type": 3 }, "instance": false, "position": [0.4626, 0.7904] }
+          },
+          { "time": 1793790110, "timer": true, "client": { "position": [0.5, 0.5] } },
+          {
+            "time": 1793790120,
+            "event": "ZONE_CHANGED_NEW_AREA",
+            "args": [],
+            "client": { "map": { "id": 1429, "name": "Elwynn Forest", "type": 3 }, "position": [0.25, 0.75] }
+          },
+          { "time": 1793790130, "timer": true },
+          { "time": 1793790140, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFifth Surname\tsForever\tsHUNTER\tsNightElf\tsAlliance\tn30\tsus\tsnormal\tsalliance\tn61000\nszone\tn0\tn1436\tsWestfall\nsloot\tn26\tn1436\tn463\tn790\t\tsitem:2589::::::::30\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsinstance\tn40\tn36\tsThe Deadmines\tsparty\tn1\nsloot\tn56\tn291\t\t\t\tsitem:2589::::::::30\tn1\tsCreature-0-5250-36-77-634-00004F2A50\tn1\t\nsreload\tn60\tn61000\nszone\tn100\tn1436\tsWestfall\nszone\tn120\tn1429\tsElwynn Forest\nsend\tn140\tn30\tn61000"
+            },
+            "routes": {
+              "1793790000-1": "@13w 0colx acsly kcvly 28dwdw @13p a6yku"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Fifth Surname", "Forever", "HUNTER", "NightElf", "Alliance", 30, "us", "normal", "alliance", 61000],
+            ["zone", 0, 1436, "Westfall"],
+            ["loot", 26, 1436, 463, 790, null, "item:2589::::::::30", 2, "Creature-0-5250-0-12-589-00004F2A3B", 2, null],
+            ["instance", 40, 36, "The Deadmines", "party", 1],
+            ["loot", 56, 291, null, null, null, "item:2589::::::::30", 1, "Creature-0-5250-36-77-634-00004F2A50", 1, null],
+            ["reload", 60, 61000],
+            ["zone", 100, 1436, "Westfall"],
+            ["zone", 120, 1429, "Elwynn Forest"],
+            ["end", 140, 30, 61000]
+          ]
+        },
+        "routes": {
+          "1793790000-1": [
+            [0, 1436, 456, 789],
+            [10, 1436, 460, 790],
+            [30, 1436, 463, 790],
+            [110, 1436, 500, 500],
+            [120, 1429, 250, 750]
+          ]
+        }
+      }
+    },
+    {
+      "name": "items mailed from another of the account's own characters and from a stranger, each recorded once though partly emptied",
+      "note": "Second Surname logs in at 1793790000 (Session 1793790000-1), reads its mailbox at 1793790300 (as it must to send mail), so it is remembered in `v1.characters` with its Region and Ruleset (EU, PvP), and logs out at 1793790600, 600 s in. First Surname logs in at 1793790660 (Session 1793790660-2) and opens its mailbox at 1793790720. The mails are Ledger rows of First Surname-Forever, timed in server time; the Sessions hold only their start and end. Second Surname's mail (500 copper, 20 Linen Cloth, 5 Silk Cloth, 20 Linen Cloth) is a transfer naming it; its money isn't recorded. Expiry 1793790720 + 30 days (2592000 s) = 1796382720, a whole minute. Some Player's mail (5 Heavy Leather) is received with no name: + 29.9 days (2583360 s) = 1796374080, a whole minute. Neither memory key holds a subject or money. 864 s (0.01 days) later, at 1793791584, the money and the Silk Cloth (slot 2) have been taken from the transfer: its attachments are within the remembered ones and 29.99 days (2591136 s) give 1796382720 again, so it's the same mail; Some Player's mail with 29.89 days (2582496 s) gives 1796374080 again. Nothing more is recorded. Logout at 1793794200, 3540 s in. Second Surname holds 2500000 copper and First Surname 1234567, each throughout; the PLAYER_MONEY of the money taken isn't part of this case.",
+      "input": {
+        "client": {
+          "name": "Second Surname",
+          "realm": "Forever",
+          "class": "MAGE",
+          "race": "Gnome",
+          "faction": "Alliance",
+          "level": 60,
+          "money": 2500000,
+          "region": 3,
+          "gameRules": ["PvPRuleset"],
+          "mailbox": []
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790300, "event": "MAIL_INBOX_UPDATE", "args": [] },
+          { "time": 1793790600, "event": "PLAYER_LOGOUT", "args": [] },
+          {
+            "time": 1793790660,
+            "event": "PLAYER_ENTERING_WORLD",
+            "args": [true, false],
+            "client": { "name": "First Surname", "class": "WARRIOR", "race": "Human", "money": 1234567 }
+          },
+          {
+            "time": 1793790720,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Second Surname", "subject": "Cloth", "money": 500, "daysLeft": 30,
+                  "items": [
+                    { "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 },
+                    { "link": "|cffffffff|Hitem:4306::::::::60:::::|h[Silk Cloth]|h|r", "count": 5 },
+                    { "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 }
+                  ]
+                },
+                {
+                  "sender": "Some Player", "subject": "For you", "money": 0, "daysLeft": 29.9,
+                  "items": [{ "link": "|cffffffff|Hitem:4234::::::::60:::::|h[Heavy Leather]|h|r", "count": 5 }]
+                }
+              ]
+            }
+          },
+          {
+            "time": 1793791584,
+            "event": "MAIL_INBOX_UPDATE",
+            "args": [],
+            "client": {
+              "mailbox": [
+                {
+                  "sender": "Second Surname", "subject": "Cloth", "money": 0, "daysLeft": 29.99,
+                  "items": [
+                    { "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 },
+                    {},
+                    { "link": "|cffffffff|Hitem:2589::::::::60:::::|h[Linen Cloth]|h|r", "count": 20 }
+                  ]
+                },
+                {
+                  "sender": "Some Player", "subject": "For you", "money": 0, "daysLeft": 29.89,
+                  "items": [{ "link": "|cffffffff|Hitem:4234::::::::60:::::|h[Heavy Leather]|h|r", "count": 5 }]
+                }
+              ]
+            }
+          },
+          { "time": 1793794200, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 2,
+          "v1": {
+            "current": "1793790660-2",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\nsend\tn600\tn60\tn2500000",
+              "1793790660-2": "sstart\tn0\tn1793790660\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn60\tseu\tspvp\tsalliance\tn1234567\nsend\tn3540\tn60\tn1234567"
+            },
+            "mails": {
+              "n1796382720\tsFirst Surname\tsForever\t\t\tsitem:2589::::::::60:::::\tn20\tsitem:4306::::::::60:::::\tn5\tsitem:2589::::::::60:::::\tn20": 1,
+              "n1796374080\tsFirst Surname\tsForever\t\t\tsitem:4234::::::::60:::::\tn5": 1
+            },
+            "characters": {
+              "Second Surname-Forever": "seu\tspvp",
+              "First Surname-Forever": "seu\tspvp"
+            },
+            "ledger": {
+              "First Surname-Forever": "stransfer\tn1793790720\tn1796382720\tsSecond Surname\tsForever\tsitem:2589::::::::60:::::\tn20\tsitem:4306::::::::60:::::\tn5\tsitem:2589::::::::60:::::\tn20\nsreceived\tn1793790720\tn1796374080\tsitem:4234::::::::60:::::\tn5"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Second Surname", "Forever", "MAGE", "Gnome", "Alliance", 60, "eu", "pvp", "alliance", 2500000],
+            ["end", 600, 60, 2500000]
+          ],
+          "1793790660-2": [
+            ["start", 0, 1793790660, "First Surname", "Forever", "WARRIOR", "Human", "Alliance", 60, "eu", "pvp", "alliance", 1234567],
+            ["end", 3540, 60, 1234567]
+          ]
+        },
+        "ledger": {
+          "First Surname-Forever": [
+            ["transfer", 1793790720, 1796382720, "Second Surname", "Forever", "item:2589::::::::60:::::", 20, "item:4306::::::::60:::::", 5, "item:2589::::::::60:::::", 20],
+            ["received", 1793790720, 1796374080, "item:4234::::::::60:::::", 5]
+          ]
+        }
+      }
+    }
+  ]
+}

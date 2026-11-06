@@ -1,0 +1,342 @@
+{
+  "format": {
+    "meaning": "The requests the Companion sends to the server and the answers it gets, under `/companion/v1`. Each case's `input.request` is one request (its method, its path, its JSON body and, where it needs the account, its `headers`) and `expected` the answer (its HTTP status and its JSON body). `input.given` names what happened before the request, from the list under `given`. The server answers every case as written here; the Companion builds each request and reads each answer from its copy.",
+    "address": "The server's address is the production deployment's `convex.site` URL. Every path under `/companion/v1` keeps answering as written here for as long as a Companion that uses it is installed anywhere: a change that old Companions couldn't read gets a new path.",
+    "requests": "A request with a body is a POST with `Content-Type: application/json`. Every answer is JSON. A body the server can't read as the case shows (not JSON, a field missing or of the wrong type, a name or version that is empty or too long) is answered with status 400 and `{ \"error\": \"invalid_request\" }`. A Companion ignores fields it doesn't know in an answer.",
+    "linking": [
+      "The Companion asks for a link with `POST /companion/v1/link`: `name` is what the player will see the computer called on the website (1 to 64 characters once trimmed), `version` the Companion's own version (1 to 32 characters).",
+      "The answer gives `code` to show the player, `secret` to poll with, `url` (the website's link page with the code in it, which the Companion opens in the browser), `expiresIn` (how many seconds the code lasts: 600) and `interval` (how many seconds to wait between polls).",
+      "The Companion then polls with `POST /companion/v1/link/poll` and its `secret`. `status` is `pending` until the signed-in player confirms the code on the link page. The first poll after that answers `linked` with `token`, the device token, and no later poll gives it again.",
+      "`expired` means this link is over, whatever the reason: the code ran out before anyone confirmed it, a confirmed code's token wasn't collected in time, the token was already given, or the server never gave that secret. The Companion stops polling and asks for a new link when the player wants one.",
+      "A code can be confirmed for `expiresIn` seconds and no longer. The token of a code confirmed in that time is given to a poll that arrives up to 30 seconds after the code ran out, so a code confirmed in its last seconds still links, and to no later poll. The Companion keeps polling at `interval` until it is answered `linked` or `expired`: it never has to count the time itself.",
+      "The Companion keeps the device token in the operating system's credential store and sends it as `Authorization: Bearer <token>` on every request that needs the account. It lasts until the player unlinks the computer on the website."
+    ],
+    "upload": [
+      "The Companion uploads with `POST /companion/v1/upload` and its device token. `version` is the Companion's own version (1 to 32 characters). `recording` is `PriceWatchDB.recording` as the addon saved it, written as JSON the way `saved-variables.json` writes a parsed value: each format version's records under their own key, and under `v1` the `sessions` and `routes` by Session ID and the `ledger` and `characters` by character, every value the string the addon wrote, unchanged (`recording-v1.json`). A route goes with its Session.",
+      "The Companion may leave out a Session or a Ledger row it has already sent unchanged, and whatever else the recording holds (`count`, `current`, `mails`): the server reads none of it. It sends nothing from outside the recording.",
+      "`uploadedUpTo` in the answer is the latest record time in what the upload held, in the game's server time and never the server's clock: the time of the last row of the Session that goes on longest, or of a later Ledger row. The Companion writes it, with `linked = true`, into its data addon (`recording-v1.json`, `format.companion`), and the addon prunes up to it at the next login.",
+      "`uploadedUpTo` is null when the server read no record time: the upload held no rows, or the server couldn't read all of it (a format version it doesn't know yet, a Session without its `start` row), which it has stored all the same. The Companion then leaves the `uploadedUpTo` it wrote before as it is.",
+      "Sending a Session again is safe: the server keeps it once. A Session uploaded at a /reload and sent again longer, its `end` row turned into a `reload` row with more rows after it, takes the earlier copy's place.",
+      "Status 401 with `{ \"error\": \"invalid_token\" }` means the token is of no linked computer: the player unlinked it, or the server never gave it. The Companion stops uploading and shows that it isn't linked.",
+      "Status 413 with `{ \"error\": \"too_large\" }` means the request's body is over 8 MiB (8388608 bytes). Nothing of it was stored. An upload can be split over several requests, each with some of the Sessions.",
+      "Status 429 with `{ \"error\": \"too_many_uploads\" }` means this computer has already sent 30 uploads in the last hour. Every upload counts, whatever its answer, except one answered 429. `retryAfter`, also sent as the `Retry-After` header, is how many seconds to wait before the next one."
+    ],
+    "varies": {
+      "meaning": "The server makes these values up, so they differ on every run. A case shows an example. A runner checks the real value against the pattern, and puts the real `code`, `secret` and `token` where a later request or answer of the same link shows the example.",
+      "code": "^[ACDEFGHJKMNPQRTUVWXY2-9]{4}-[ACDEFGHJKMNPQRTUVWXY2-9]{4}$",
+      "secret": "^[A-Za-z0-9_-]{43}$",
+      "token": "^[A-Za-z0-9_-]{43}$"
+    },
+    "given": {
+      "nothing": "No link was asked for.",
+      "asked": "The Companion asked for a link, as in the first case, and nobody has confirmed its code.",
+      "confirmed": "As `asked`, and a signed-in player then confirmed the code on the link page.",
+      "collected": "As `confirmed`, and one poll has already been answered with the device token.",
+      "ran out": "As `asked`, and more than 600 seconds passed with nobody confirming the code.",
+      "uploaded": "As `collected`, and the computer then sent the request of the case \"a first upload is stored, and the answer says up to when\" and was answered.",
+      "unlinked": "As `collected`, and the player then unlinked the computer on the website.",
+      "30 uploads": "As `collected`, and the computer then sent 30 uploads, the last of them just now."
+    }
+  },
+  "cases": [
+    {
+      "name": "asking for a link gives a code, a secret to poll with and the link page's address",
+      "input": {
+        "given": "nothing",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link",
+          "body": { "name": "Mara's PC", "version": "1.0.0" }
+        }
+      },
+      "expected": {
+        "status": 200,
+        "body": {
+          "code": "K7QM-R4TX",
+          "secret": "q3VnX0pT8sLhYb2RkWc6ZfJ1uEoAa9MdGiN5eC7xPtw",
+          "url": "https://pricewatchforever.com/link?code=K7QM-R4TX",
+          "expiresIn": 600,
+          "interval": 5
+        }
+      }
+    },
+    {
+      "name": "a poll before the player has confirmed the code says not yet",
+      "input": {
+        "given": "asked",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link/poll",
+          "body": { "secret": "q3VnX0pT8sLhYb2RkWc6ZfJ1uEoAa9MdGiN5eC7xPtw" }
+        }
+      },
+      "expected": { "status": 200, "body": { "status": "pending" } }
+    },
+    {
+      "name": "the first poll after the player confirmed the code gives the device token",
+      "input": {
+        "given": "confirmed",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link/poll",
+          "body": { "secret": "q3VnX0pT8sLhYb2RkWc6ZfJ1uEoAa9MdGiN5eC7xPtw" }
+        }
+      },
+      "expected": {
+        "status": 200,
+        "body": { "status": "linked", "token": "Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" }
+      }
+    },
+    {
+      "name": "a poll after the token was given gives none: the link is over",
+      "input": {
+        "given": "collected",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link/poll",
+          "body": { "secret": "q3VnX0pT8sLhYb2RkWc6ZfJ1uEoAa9MdGiN5eC7xPtw" }
+        }
+      },
+      "expected": { "status": 200, "body": { "status": "expired" } }
+    },
+    {
+      "name": "a poll after the code ran out with nobody confirming it says the link is over",
+      "input": {
+        "given": "ran out",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link/poll",
+          "body": { "secret": "q3VnX0pT8sLhYb2RkWc6ZfJ1uEoAa9MdGiN5eC7xPtw" }
+        }
+      },
+      "expected": { "status": 200, "body": { "status": "expired" } }
+    },
+    {
+      "name": "a poll with a secret the server never gave says the link is over",
+      "input": {
+        "given": "nothing",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link/poll",
+          "body": { "secret": "q3VnX0pT8sLhYb2RkWc6ZfJ1uEoAa9MdGiN5eC7xPtw" }
+        }
+      },
+      "expected": { "status": 200, "body": { "status": "expired" } }
+    },
+    {
+      "name": "asking for a link without a name for the computer is refused",
+      "input": {
+        "given": "nothing",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link",
+          "body": { "name": "  ", "version": "1.0.0" }
+        }
+      },
+      "expected": { "status": 400, "body": { "error": "invalid_request" } }
+    },
+    {
+      "name": "asking for a link without the Companion's version is refused",
+      "input": {
+        "given": "nothing",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/link",
+          "body": { "name": "Mara's PC" }
+        }
+      },
+      "expected": { "status": 400, "body": { "error": "invalid_request" } }
+    },
+    {
+      "name": "a poll without a secret is refused",
+      "input": {
+        "given": "asked",
+        "request": { "method": "POST", "path": "/companion/v1/link/poll", "body": {} }
+      },
+      "expected": { "status": 400, "body": { "error": "invalid_request" } }
+    },
+    {
+      "name": "a first upload is stored, and the answer says up to when",
+      "note": "The first Session's last row is 1800 s after its start: 1793790000 + 1800 = 1793791800. The second's, the `end` row a /reload saved, is 600 s after its start: 1793804460 + 600 = 1793805060, the latest. The Ledger row is at 1793790661.",
+      "input": {
+        "given": "collected",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.0.0",
+            "recording": {
+              "v1": {
+                "sessions": {
+                  "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1436\tsWestfall\nsloot\tn26\tn1436\tn463\tn790\t\tsitem:2589::::::::58\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsend\tn1800\tn58\tn1234567",
+                  "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567"
+                },
+                "routes": { "1793790000-1": "@13w 0colx acsly" },
+                "ledger": { "First Surname-Forever": "spost\tn1793790661\tsitem:2589::::::::60:::::\tn20\tn1\t\tn900\tn12\tn100\tsalliance" },
+                "characters": { "First Surname-Forever": "seu\tspvp" }
+              }
+            }
+          }
+        }
+      },
+      "expected": { "status": 200, "body": { "uploadedUpTo": 1793805060 } }
+    },
+    {
+      "name": "the same upload again gets the same answer",
+      "input": {
+        "given": "uploaded",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.0.0",
+            "recording": {
+              "v1": {
+                "sessions": {
+                  "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1436\tsWestfall\nsloot\tn26\tn1436\tn463\tn790\t\tsitem:2589::::::::58\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsend\tn1800\tn58\tn1234567",
+                  "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567"
+                },
+                "routes": { "1793790000-1": "@13w 0colx acsly" },
+                "ledger": { "First Surname-Forever": "spost\tn1793790661\tsitem:2589::::::::60:::::\tn20\tn1\t\tn900\tn12\tn100\tsalliance" },
+                "characters": { "First Surname-Forever": "seu\tspvp" }
+              }
+            }
+          }
+        }
+      },
+      "expected": { "status": 200, "body": { "uploadedUpTo": 1793805060 } }
+    },
+    {
+      "name": "a Session sent again longer, after the /reload it was first uploaded at, moves uploaded up to on",
+      "note": "The Session's last row is now 3600 s after its start: 1793804460 + 3600 = 1793808060.",
+      "input": {
+        "given": "uploaded",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.0.0",
+            "recording": {
+              "v1": {
+                "sessions": { "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsreload\tn600\tn1234567\nszone\tn900\tn1436\tsWestfall\nsend\tn3600\tn59\tn1240000" },
+                "characters": { "First Surname-Forever": "seu\tspvp" }
+              }
+            }
+          }
+        }
+      },
+      "expected": { "status": 200, "body": { "uploadedUpTo": 1793808060 } }
+    },
+    {
+      "name": "an upload under a format version the server doesn't know yet is received, with no time to prune up to",
+      "input": {
+        "given": "collected",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.4.0",
+            "recording": {
+              "count": 3,
+              "v2": { "sessions": { "1793890000-3": "a Session as format version 2 writes it" } }
+            }
+          }
+        }
+      },
+      "expected": { "status": 200, "body": { "uploadedUpTo": null } }
+    },
+    {
+      "name": "an upload from a computer the player has unlinked is refused",
+      "input": {
+        "given": "unlinked",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.0.0",
+            "recording": { "v1": { "sessions": { "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567" } } }
+          }
+        }
+      },
+      "expected": { "status": 401, "body": { "error": "invalid_token" } }
+    },
+    {
+      "name": "an upload with a token the server never gave is refused",
+      "input": {
+        "given": "nothing",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.0.0",
+            "recording": { "v1": { "sessions": { "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567" } } }
+          }
+        }
+      },
+      "expected": { "status": 401, "body": { "error": "invalid_token" } }
+    },
+    {
+      "name": "an upload without a token is refused",
+      "input": {
+        "given": "collected",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "body": {
+            "version": "1.0.0",
+            "recording": { "v1": { "sessions": { "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567" } } }
+          }
+        }
+      },
+      "expected": { "status": 401, "body": { "error": "invalid_token" } }
+    },
+    {
+      "name": "the 31st upload in an hour is refused, with how long to wait",
+      "input": {
+        "given": "30 uploads",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": {
+            "version": "1.0.0",
+            "recording": { "v1": { "sessions": { "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567" } } }
+          }
+        }
+      },
+      "expected": { "status": 429, "body": { "error": "too_many_uploads", "retryAfter": 3600 } }
+    },
+    {
+      "name": "an upload without the Companion's version is refused",
+      "input": {
+        "given": "collected",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": { "recording": { "v1": { "sessions": { "1793804460-2": "sstart\tn0\tn1793804460\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nszone\tn0\tn1429\tsElwynn Forest\nsend\tn600\tn58\tn1234567" } } } }
+        }
+      },
+      "expected": { "status": 400, "body": { "error": "invalid_request" } }
+    },
+    {
+      "name": "an upload without a recording is refused",
+      "input": {
+        "given": "collected",
+        "request": {
+          "method": "POST",
+          "path": "/companion/v1/upload",
+          "headers": { "Authorization": "Bearer Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA" },
+          "body": { "version": "1.0.0" }
+        }
+      },
+      "expected": { "status": 400, "body": { "error": "invalid_request" } }
+    }
+  ]
+}

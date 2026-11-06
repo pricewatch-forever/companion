@@ -1,0 +1,104 @@
+{
+  "format": {
+    "meaning": "A SavedVariables file as the game client writes it: `Name = <Lua value>` assignments, one per saved variable. A reader parses the subset the client writes (tables, strings, numbers, booleans, nil and `--` comments) and never runs the file. Each case's `input.text` is the file's text and `expected.value` what it parses to, written as JSON.",
+    "values": [
+      "A table whose keys are exactly 1 to n, written with or without them, is a list. An empty table is an empty list.",
+      "Any other table is a map, its keys as strings: a number key 2 is \"2\".",
+      "nil is null. A number is a number, whole or not.",
+      "A string is its bytes read as UTF-8, with the client's escapes undone: `\\\"`, `\\\\`, `\\n` (a newline, as Forever's client writes one: checked on a saved PriceWatch.lua, 2026-11-05), a backslash before a real newline (a newline too: Lua allows it, and a file written that way must still be read), and `\\` followed by up to three digits (the byte of that value). The client writes a tab as a real tab."
+    ],
+    "errors": "A case with `expected.error` must be refused, not half-read. The text says why, for the reader; a runner may match it loosely or not at all."
+  },
+  "cases": [
+    {
+      "name": "strings: a newline written both ways, a byte written as digits, and UTF-8",
+      "note": "Forever's client writes a newline inside a string as `\\n` (the fourth string). Lua also allows a backslash followed by a real newline (the first), so a reader accepts both. Any byte can be written as a backslash and its decimal value: `\\9` is a tab, `\\0` the zero byte. `Ærendil` is written as its UTF-8 bytes. The table's entries carry the client's `-- [n]` comments and no keys, so it is a list.",
+      "input": {
+        "text": "Other = {\n\t\"line\\\nbreak\", -- [1]\n\t\"\\9tab\\0\", -- [2]\n\t\"Ærendil\", -- [3]\n\t\"two\\nlines\", -- [4]\n}\n"
+      },
+      "expected": {
+        "value": { "Other": ["line\nbreak", "\ttab\u0000", "Ærendil", "two\nlines"] }
+      }
+    },
+    {
+      "name": "numbers, booleans, nil, an empty table and a number key among names",
+      "note": "`-0.75` is a negative fraction. The empty table is an empty list. `[2] = nil` keeps its key, as the string \"2\", since the table's keys aren't 1 to n: it is a map.",
+      "input": {
+        "text": "Settings = {\n\t[\"ratio\"] = -0.75,\n\t[\"empty\"] = {\n\t},\n\t[\"off\"] = false,\n\t[2] = nil,\n}\n"
+      },
+      "expected": {
+        "value": { "Settings": { "ratio": -0.75, "empty": [], "off": false, "2": null } }
+      }
+    },
+    {
+      "name": "a table with keys 1 to n is a list, written with its keys or without; with a gap it is a map",
+      "note": "The first table has no keys and the second writes `[1]` and `[2]`: both are the list a, b. The third has keys 1 and 3, not 1 to n, so it is a map with the keys \"1\" and \"3\".",
+      "input": {
+        "text": "Lists = {\n\t{\n\t\t\"a\", -- [1]\n\t\t\"b\", -- [2]\n\t}, -- [1]\n\t{\n\t\t[1] = \"a\",\n\t\t[2] = \"b\",\n\t}, -- [2]\n\t{\n\t\t[1] = \"a\",\n\t\t[3] = \"c\",\n\t}, -- [3]\n}\n"
+      },
+      "expected": {
+        "value": { "Lists": [["a", "b"], ["a", "b"], { "1": "a", "3": "c" }] }
+      }
+    },
+    {
+      "name": "two variables in one file, and a quote and a backslash in a string",
+      "note": "The file starts with an empty line, as the client's do. `\\\"` is a quote and `\\\\` one backslash, so the string is: say \"hi\" \\ bye.",
+      "input": {
+        "text": "\nFirst = \"say \\\"hi\\\" \\\\ bye\"\nSecond = 16001\n"
+      },
+      "expected": {
+        "value": { "First": "say \"hi\" \\ bye", "Second": 16001 }
+      }
+    },
+    {
+      "name": "a recording row whose string field holds an escaped tab, an escaped newline, a quote and a backslash",
+      "note": "Two layers of escaping. The addon's row is `szone`, `n12`, `n1453` and one string field, separated by real tabs. In a row, a tab inside a string is written backslash t, a newline backslash n, and a backslash is doubled (recording-v1.json's `rules`), so the field is written `sA\\tB \"C\" \\\\ D\\nE`. The client then writes that string with each backslash doubled again and each quote escaped, and the real tabs as they are. So in the file a backslash, a backslash and an n is the row's own escaped newline, inside a field, while a single backslash and an n is a real newline, between two rows. Parsing the file gives the addon's row back, still with the row's own escapes: decoded as a row it is zone, 12, 1453 and the string A, a tab, B \"C\" \\ D, a newline, E.",
+      "input": {
+        "text": "Row = \"szone\tn12\tn1453\tsA\\\\tB \\\"C\\\" \\\\\\\\ D\\\\nE\"\n"
+      },
+      "expected": {
+        "value": { "Row": "szone\tn12\tn1453\tsA\\tB \"C\" \\\\ D\\nE" }
+      }
+    },
+    {
+      "name": "PriceWatch.lua: a recording of two Sessions as the client writes it",
+      "note": "The saved recording of recording-v1.json's first case (\"a Session through /reload to logout, then a switch to another character\"), beside the addon's settings. Each Session is one string: its rows' fields separated by real tabs, its rows by `\\n`, as Forever's client writes a newline. `expected.value.PriceWatchDB.recording` is that case's `expected.recording`, and a runner checks the two are equal. The Companion uploads `recording` and nothing else from the file.",
+      "input": {
+        "text": "\nPriceWatchDB = {\n\t[\"recording\"] = {\n\t\t[\"count\"] = 2,\n\t\t[\"v1\"] = {\n\t\t\t[\"current\"] = \"1793804460-2\",\n\t\t\t[\"sessions\"] = {\n\t\t\t\t[\"1793790000-1\"] = \"sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\\nsreload\tn1800\tn1234567\\nsend\tn14400\tn59\tn1234567\",\n\t\t\t\t[\"1793804460-2\"] = \"sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\\nsend\tn3600\tn60\tn2500000\",\n\t\t\t},\n\t\t},\n\t},\n\t[\"settings\"] = {\n\t\t[\"recordSessions\"] = true,\n\t\t[\"recordRoute\"] = false,\n\t},\n}\n"
+      },
+      "expected": {
+        "value": {
+          "PriceWatchDB": {
+            "recording": {
+              "count": 2,
+              "v1": {
+                "current": "1793804460-2",
+                "sessions": {
+                  "1793790000-1": "sstart\tn0\tn1793790000\tsFirst Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn58\tseu\tspvp\tsalliance\tn1234567\nsreload\tn1800\tn1234567\nsend\tn14400\tn59\tn1234567",
+                  "1793804460-2": "sstart\tn0\tn1793804460\tsSecond Surname\tsForever\tsMAGE\tsGnome\tsAlliance\tn60\tseu\tspvp\tsalliance\tn2500000\nsend\tn3600\tn60\tn2500000"
+                }
+              }
+            },
+            "settings": { "recordSessions": true, "recordRoute": false }
+          }
+        }
+      }
+    },
+    {
+      "name": "a table used as a key is refused",
+      "note": "Lua allows a table as a key, but the client never writes one and it has no string to key the result by.",
+      "input": {
+        "text": "Settings = {\n\t[{\n\t}] = 1,\n}\n"
+      },
+      "expected": { "error": "key" }
+    },
+    {
+      "name": "a string that never ends is refused",
+      "note": "A file cut off while the client was writing it.",
+      "input": {
+        "text": "Broken = \"abc\n"
+      },
+      "expected": { "error": "unterminated" }
+    }
+  ]
+}
