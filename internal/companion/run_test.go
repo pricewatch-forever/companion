@@ -489,6 +489,38 @@ func TestA401StopsUploadingAndTellsTheAddon(t *testing.T) {
 	}
 }
 
+// A 401 for the old token after `companion link` has linked the computer
+// again leaves the new link and the addon's linked = true alone.
+func TestA401AfterLinkingAgainKeepsTheNewLink(t *testing.T) {
+	const newToken = "Qm3vT8bX1kRw6NpLc9HsYe2UjGa5FzDo0tVi4rEyKhB"
+	h := newHarness(t, "AAA")
+	h.answer = func(int, upload) answer {
+		if err := h.store.Save(config.Config{Server: h.srv.URL, Token: newToken}); err != nil {
+			t.Error(err)
+		}
+		return answer{401, `{"error":"invalid_token"}`}
+	}
+	h.link()
+	h.start()
+	select {
+	case err := <-h.done:
+		h.done <- err
+		if !errors.Is(err, companion.ErrRelinked) {
+			t.Errorf("stopped with %v, want ErrRelinked", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still running after a 401")
+	}
+	h.expectDataAddon("PriceWatchCompanion = { linked = true }\n")
+	c, _ := h.store.Load()
+	if c.Token != newToken {
+		t.Error("the new link was lost")
+	}
+	if strings.Contains(h.out.String(), "unlinked on the website") {
+		t.Errorf("said it was unlinked:\n%s", h.out)
+	}
+}
+
 func TestAnUnlinkedCompanionUploadsNothingAndWritesNoDataAddon(t *testing.T) {
 	h := newHarness(t, "AAA")
 	h.start()

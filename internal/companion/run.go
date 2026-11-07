@@ -43,6 +43,10 @@ var ErrNotLinked = errors.New("the Companion isn't linked yet: run `companion li
 // unlinked on the website.
 var ErrUnlinked = errors.New("this computer was unlinked on the website: run `companion link` to link it again")
 
+// ErrRelinked means `companion link` linked the Companion again while it
+// was running, so the link it uploads with is stale.
+var ErrRelinked = errors.New("the Companion was linked again while running: start `companion run` again")
+
 const (
 	// settle is how long a file must go unchanged before it is uploaded.
 	settle = 2 * time.Second
@@ -248,7 +252,7 @@ func (s *session) saveAnswer(path string, upTo *int64) error {
 		c.LastUpload = s.Clock.Now()
 	})
 	if errors.Is(err, config.ErrRelinked) {
-		return errors.New("the Companion was linked again while running: start `companion run` again")
+		return ErrRelinked
 	}
 	if err != nil {
 		return err
@@ -258,13 +262,17 @@ func (s *session) saveAnswer(path string, upTo *int64) error {
 }
 
 // unlink marks the Companion unlinked after a 401, tells the addon, and
-// returns ErrUnlinked.
+// returns ErrUnlinked. If it was linked again meanwhile, the 401 was for
+// the old link: it leaves the new one and the addon alone.
 func (s *session) unlink() error {
 	_, err := s.Store.Update(s.token, func(c *config.Config) {
 		c.Token = ""
 		c.UploadedUpTo = nil
 	})
-	if err != nil && !errors.Is(err, config.ErrRelinked) {
+	if errors.Is(err, config.ErrRelinked) {
+		return ErrRelinked
+	}
+	if err != nil {
 		return err
 	}
 	if _, err := addon.Write(s.Game, addon.State{Linked: false}); err != nil {
