@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pricewatch-forever/companion/internal/api"
+	"github.com/pricewatch-forever/companion/internal/clocktest"
 	"github.com/pricewatch-forever/companion/internal/companion"
 	"github.com/pricewatch-forever/companion/internal/config"
 )
@@ -27,7 +28,7 @@ type linkHarness struct {
 	t      *testing.T
 	srv    *httptest.Server
 	store  *config.Store
-	clock  *fakeClock
+	clock  *clocktest.Clock
 	out    *safeBuffer
 	opened []string
 
@@ -41,7 +42,7 @@ func newLinkHarness(t *testing.T, polls ...string) *linkHarness {
 	h := &linkHarness{
 		t:     t,
 		store: config.NewStore(filepath.Join(t.TempDir(), "config.json")),
-		clock: newFakeClock(),
+		clock: clocktest.New(),
 		out:   &safeBuffer{},
 		polls: polls,
 	}
@@ -75,14 +76,14 @@ func newLinkHarness(t *testing.T, polls ...string) *linkHarness {
 	t.Cleanup(h.srv.Close)
 	// Time passes as soon as the Companion waits.
 	go func() {
-		for d := range h.clock.waits {
+		for d := range h.clock.Waits {
 			h.mu.Lock()
 			h.waits = append(h.waits, d)
 			h.mu.Unlock()
 			h.clock.Advance(d)
 		}
 	}()
-	t.Cleanup(func() { close(h.clock.waits) })
+	t.Cleanup(func() { close(h.clock.Waits) })
 	return h
 }
 

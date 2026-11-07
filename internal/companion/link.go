@@ -26,17 +26,18 @@ type Linker struct {
 	Server string // kept in the config with the token
 	Store  *config.Store
 	Clock  Clock
-	// Open opens the website's link page in the browser.
+	// Open opens the website's link page in the browser, for Link.
 	Open func(url string) error
-	Out  io.Writer
+	// Out is where Link says what it does.
+	Out io.Writer
 }
 
 // Link asks for a link code naming this computer name, shows it, opens the
 // link page and polls until the player has confirmed it there.
 func (l *Linker) Link(ctx context.Context, name string) error {
-	link, err := l.Client.Link(ctx, name)
+	link, err := l.Request(ctx, name)
 	if err != nil {
-		return fmt.Errorf("couldn't ask for a link code: %w", err)
+		return err
 	}
 	fmt.Fprintf(l.Out, "Your link code is %s\n\n", link.Code)
 	if err := l.Open(link.URL); err != nil {
@@ -45,7 +46,25 @@ func (l *Linker) Link(ctx context.Context, name string) error {
 		fmt.Fprintf(l.Out, "The link page is open in your browser: sign in and confirm the code there.\nIf it didn't open: %s\n\n", link.URL)
 	}
 	fmt.Fprintln(l.Out, "Waiting for you to confirm it…")
+	if err := l.Wait(ctx, link); err != nil {
+		return err
+	}
+	fmt.Fprintln(l.Out, "Linked. Run `companion run` to start uploading.")
+	return nil
+}
 
+// Request asks the server for a link code naming this computer name.
+func (l *Linker) Request(ctx context.Context, name string) (api.Link, error) {
+	link, err := l.Client.Link(ctx, name)
+	if err != nil {
+		return link, fmt.Errorf("couldn't ask for a link code: %w", err)
+	}
+	return link, nil
+}
+
+// Wait polls the link until the player has confirmed its code, and saves
+// the link. It returns ErrLinkExpired if the code runs out first.
+func (l *Linker) Wait(ctx context.Context, link api.Link) error {
 	interval := time.Duration(link.Interval) * time.Second
 	if interval < time.Second {
 		interval = time.Second
@@ -72,11 +91,9 @@ func (l *Linker) Link(ctx context.Context, name string) error {
 		}
 		switch p.Status {
 		case api.Linked:
-			err := l.Store.Save(config.Config{Server: l.Server, Token: p.Token})
-			if err != nil {
+			if err := l.Store.Link(l.Server, p.Token); err != nil {
 				return fmt.Errorf("linked, but couldn't save the link: %w", err)
 			}
-			fmt.Fprintln(l.Out, "Linked. Run `companion run` to start uploading.")
 			return nil
 		case api.Expired:
 			return ErrLinkExpired

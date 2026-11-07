@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"unicode/utf8"
@@ -34,6 +35,7 @@ Uploads what the PriceWatch addon records in World of Warcraft: Forever to
 your PriceWatch Forever account.
 
 Usage:
+  companion app      run in the menu bar, as PriceWatch Companion.app does
   companion link     link this computer to your account (once)
   companion run      upload now, then each time the game saves; leave it
                      running while you play, Ctrl-C stops it
@@ -53,6 +55,13 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	// Opened from Finder or at login, the .app runs this program with no
+	// command, perhaps with the app's flags (older macOS adds a -psn_
+	// argument).
+	args = slices.DeleteFunc(args, func(a string) bool { return strings.HasPrefix(a, "-psn_") })
+	if inAppBundle() && (len(args) == 0 || isAppFlag(args[0])) {
+		args = append([]string{"app"}, args...)
+	}
 	if len(args) == 0 {
 		fmt.Fprintf(stderr, usage, version, wow.DefaultInstall)
 		return 2
@@ -60,6 +69,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	cmd, args := args[0], args[1:]
 	var err error
 	switch cmd {
+	case "app":
+		err = appCmd(args, stdout, stderr)
 	case "link":
 		err = linkCmd(args, stdout, stderr)
 	case "run":
@@ -291,13 +302,35 @@ var openBrowser = func(page string) error {
 	if !isWebAddress(page) {
 		return fmt.Errorf("not a web page: %q", page)
 	}
+	return openWithSystem(page)
+}
+
+// openWithSystem opens a web page or a file as Finder would, on macOS.
+// Elsewhere it fails.
+func openWithSystem(target string) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("opening a browser is only done on macOS")
+		return errors.New("opening pages and files is only done on macOS")
 	}
-	cmd := exec.Command("open", page)
+	cmd := exec.Command("open", target)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+// isAppFlag reports whether arg is one of the app command's flags.
+func isAppFlag(arg string) bool {
+	name, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+	return strings.HasPrefix(arg, "-") && (name == "game" || name == "server")
+}
+
+// inAppBundle reports whether this program runs from inside a .app.
+func inAppBundle() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	_, ok := appBundle(exe)
+	return ok
 }

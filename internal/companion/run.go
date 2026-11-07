@@ -69,6 +69,28 @@ type Runner struct {
 	Events <-chan string
 	// Out is where the Runner says what it does.
 	Out io.Writer
+	// Notify, if set, is told what happens as it happens, for the menu.
+	Notify func(Event)
+}
+
+// Event is something that happened while uploading.
+type Event int
+
+const (
+	// Uploaded: an upload went through.
+	Uploaded Event = iota
+	// UploadFailed: the server couldn't be reached, or answered with an
+	// error other than a 401.
+	UploadFailed
+	// AddonCreated: the data addon was written into the game for the first
+	// time. The game finds it only when it next starts.
+	AddonCreated
+)
+
+func (r *Runner) notify(e Event) {
+	if r.Notify != nil {
+		r.Notify(e)
+	}
 }
 
 // fileState is where one PriceWatch.lua stands.
@@ -216,11 +238,18 @@ func (s *session) upload(ctx context.Context, path string, f *fileState) error {
 		f.failures = 0
 		f.notBefore = time.Time{}
 		s.Say("Uploaded %s's PriceWatch data.", account)
-		return s.saveAnswer(path, res.UploadedUpTo)
+		err := s.saveAnswer(path, res.UploadedUpTo)
+		if err == nil {
+			s.notify(Uploaded)
+		}
+		return err
 	case ctx.Err() != nil:
 		return nil
 	case errors.Is(err, api.ErrUnauthorized):
 		return s.unlink()
+	}
+	s.notify(UploadFailed)
+	switch {
 	case errors.As(err, &limited) && limited.RetryAfter > 0:
 		f.toUpload = true
 		s.blockedUntil = s.Clock.Now().Add(limited.RetryAfter)
@@ -289,6 +318,7 @@ func (s *session) writeAddon() error {
 		return err
 	}
 	if created {
+		s.notify(AddonCreated)
 		s.Say("Wrote the PriceWatch_Companion addon into the game. The game only finds a new addon when it starts: if it's running, restart it (a /reload isn't enough).")
 	}
 	return nil
@@ -333,7 +363,12 @@ func readRecording(path string) (any, error) {
 
 // Say tells the player something, with the time.
 func (r *Runner) Say(format string, args ...any) {
-	fmt.Fprintf(r.Out, "%s  %s\n", r.Clock.Now().Local().Format("15:04:05"), fmt.Sprintf(format, args...))
+	Say(r.Out, r.Clock, format, args...)
+}
+
+// Say writes a line to w, starting with the time.
+func Say(w io.Writer, clock Clock, format string, args ...any) {
+	fmt.Fprintf(w, "%s  %s\n", clock.Now().Local().Format("15:04:05"), fmt.Sprintf(format, args...))
 }
 
 // roundWait says a wait in words: "30 seconds", "2 minutes", "1 hour".

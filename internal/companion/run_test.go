@@ -18,59 +18,12 @@ import (
 	"time"
 
 	"github.com/pricewatch-forever/companion/internal/api"
+	"github.com/pricewatch-forever/companion/internal/clocktest"
 	"github.com/pricewatch-forever/companion/internal/companion"
 	"github.com/pricewatch-forever/companion/internal/config"
 )
 
 const token = "Zk8wR2yH5nQe1LxVb7TgCu4MjDs0FaPi6oYtW3rXEhA"
-
-// fakeClock is a clock the test moves by hand. Each time the runner waits,
-// it reports how long on waits, so the test knows the runner is idle.
-type fakeClock struct {
-	mu     sync.Mutex
-	now    time.Time
-	timers []fakeTimer
-	waits  chan time.Duration
-}
-
-type fakeTimer struct {
-	at time.Time
-	ch chan time.Time
-}
-
-func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, 11, 6, 20, 0, 0, 0, time.UTC), waits: make(chan time.Duration, 100)}
-}
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *fakeClock) After(d time.Duration) <-chan time.Time {
-	c.mu.Lock()
-	ch := make(chan time.Time, 1)
-	c.timers = append(c.timers, fakeTimer{at: c.now.Add(d), ch: ch})
-	c.mu.Unlock()
-	c.waits <- d
-	return ch
-}
-
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-	kept := c.timers[:0]
-	for _, t := range c.timers {
-		if t.at.After(c.now) {
-			kept = append(kept, t)
-		} else {
-			t.ch <- c.now
-		}
-	}
-	c.timers = kept
-}
 
 // upload is one request the fake server received.
 type upload struct {
@@ -97,7 +50,7 @@ type harness struct {
 	t      *testing.T
 	game   string
 	store  *config.Store
-	clock  *fakeClock
+	clock  *clocktest.Clock
 	events chan string
 	out    *safeBuffer
 
@@ -135,7 +88,7 @@ func newHarness(t *testing.T, accounts ...string) *harness {
 		t:      t,
 		game:   t.TempDir(),
 		store:  config.NewStore(filepath.Join(t.TempDir(), "config.json")),
-		clock:  newFakeClock(),
+		clock:  clocktest.New(),
 		events: make(chan string, 10),
 		out:    &safeBuffer{},
 		answer: func(int, upload) answer { return answer{200, `{"uploadedUpTo":1793805060}`} },
@@ -244,7 +197,7 @@ func (h *harness) stop() {
 func (h *harness) idle() time.Duration {
 	h.t.Helper()
 	select {
-	case d := <-h.clock.waits:
+	case d := <-h.clock.Waits:
 		return d
 	case err := <-h.done:
 		h.done <- err

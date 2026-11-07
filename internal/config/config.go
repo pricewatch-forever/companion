@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/pricewatch-forever/companion/internal/api"
@@ -26,6 +27,9 @@ type Config struct {
 	// the server answered for that file. A file it never answered a time
 	// for has none.
 	UploadedUpTo map[string]int64 `json:"uploadedUpTo,omitempty"`
+	// StartAtLogin is the player's choice of "Start when I log in", nil
+	// until they make one. A link keeps it.
+	StartAtLogin *bool `json:"startAtLogin,omitempty"`
 }
 
 // Linked reports whether the Companion has a device token.
@@ -34,9 +38,12 @@ func (c Config) Linked() bool { return c.Token != "" }
 // ErrRelinked means the config was linked again since it was read.
 var ErrRelinked = errors.New("the Companion was linked again meanwhile")
 
-// Store is the config file at one path.
+// Store is the config file at one path. Its changes are made one at a
+// time within this program; another program's change made meanwhile can
+// still be overwritten, except a link (see Update).
 type Store struct {
 	path string
+	mu   sync.Mutex
 }
 
 // NewStore returns the store for the config file at path.
@@ -83,13 +90,42 @@ func (s *Store) Save(c Config) error {
 // it still holds token: a link made meanwhile is never overwritten. It
 // returns the config as saved.
 func (s *Store) Update(token api.Token, change func(*Config)) (Config, error) {
+	return s.change(func(c Config) error {
+		if c.Token != token {
+			return ErrRelinked
+		}
+		return nil
+	}, change)
+}
+
+// Change reads the config, changes it with change and saves it, whatever
+// link it holds (unlike Update).
+func (s *Store) Change(change func(*Config)) error {
+	_, err := s.change(func(Config) error { return nil }, change)
+	return err
+}
+
+// change changes the config as long as check passes, and returns it.
+func (s *Store) change(check func(Config) error, change func(*Config)) (Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	c, err := s.Load()
 	if err != nil {
 		return c, err
 	}
-	if c.Token != token {
-		return c, ErrRelinked
+	if err := check(c); err != nil {
+		return c, err
 	}
 	change(&c)
 	return c, s.Save(c)
+}
+
+// Link saves a new link, to server with token. It forgets the earlier
+// link's state and keeps the player's choices. A config that can't be read
+// is replaced.
+func (s *Store) Link(server string, token api.Token) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, _ := s.Load()
+	return s.Save(Config{Server: server, Token: token, StartAtLogin: old.StartAtLogin})
 }
