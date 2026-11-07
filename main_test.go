@@ -27,6 +27,15 @@ func useTempConfigFolder(t *testing.T) string {
 	return filepath.Join(dir, "PriceWatch Companion", "config.json")
 }
 
+// stubBrowser makes linking call open instead of opening the browser, until
+// the test ends.
+func stubBrowser(t *testing.T, open func(page string) error) {
+	t.Helper()
+	was := openBrowser
+	openBrowser = open
+	t.Cleanup(func() { openBrowser = was })
+}
+
 func fakeLinkServer(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -46,7 +55,7 @@ func TestLinkThenStatusNeverShowTheToken(t *testing.T) {
 	path := useTempConfigFolder(t)
 	srv := fakeLinkServer(t)
 	var opened []string
-	openBrowser = func(page string) error { opened = append(opened, page); return nil }
+	stubBrowser(t, func(page string) error { opened = append(opened, page); return nil })
 
 	var out, errOut bytes.Buffer
 	if code := run([]string{"link", "--server", srv.URL}, &out, &errOut); code != 0 {
@@ -88,7 +97,7 @@ func TestRunUnlinkedSaysToLink(t *testing.T) {
 func TestRunOnAnotherServerThanLinkedIsRefused(t *testing.T) {
 	useTempConfigFolder(t)
 	srv := fakeLinkServer(t)
-	openBrowser = func(string) error { return nil }
+	stubBrowser(t, func(string) error { return nil })
 	var out, errOut bytes.Buffer
 	if code := run([]string{"link", "--server", srv.URL}, &out, &errOut); code != 0 {
 		t.Fatalf("link exited %d: %s", code, errOut.String())
