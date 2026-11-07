@@ -119,7 +119,7 @@ func newFlags(name, summary string, stderr io.Writer) *flag.FlagSet {
 			n++
 			arg, text := flag.UnquoteUsage(f)
 			fmt.Fprintf(stderr, "  --%s %s\n      %s", f.Name, arg, text)
-			if f.DefValue != "" {
+			if f.DefValue != "" && f.DefValue != "false" {
 				fmt.Fprintf(stderr, " (default %q)", f.DefValue)
 			}
 			fmt.Fprintln(stderr)
@@ -195,6 +195,7 @@ func runCmd(args []string, stdout, stderr io.Writer) error {
 	fs := newFlags("run", "Uploads the PriceWatch addon's data now, then each time the game saves it.", stderr)
 	game := fs.String("game", wow.DefaultInstall, "the game's Forever `FOLDER`")
 	server := fs.String("server", "", "the `URL` of the server it was linked to (default: that one)")
+	uploadOnly := fs.Bool("upload-only", false, "upload, but leave the PriceWatch_Companion addon to another copy of the Companion that uploads to another server")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -237,6 +238,8 @@ func runCmd(args []string, stdout, stderr io.Writer) error {
 		Store:  st,
 		Clock:  companion.SystemClock{},
 		Out:    stdout,
+
+		UploadOnly: *uploadOnly,
 	}
 	events, err := wow.Watch(ctx, *game, func(err error) { r.Say("Watching the game's files: %v", err) })
 	if err != nil {
@@ -244,6 +247,9 @@ func runCmd(args []string, stdout, stderr io.Writer) error {
 	}
 	r.Events = events
 	fmt.Fprintf(stdout, "Uploading PriceWatch data from %s. Leave this running while you play; Ctrl-C stops it.\n", *game)
+	if *uploadOnly {
+		fmt.Fprintln(stdout, "Upload only: the PriceWatch_Companion addon is left to the other copy of the Companion.")
+	}
 	return r.Run(ctx)
 }
 

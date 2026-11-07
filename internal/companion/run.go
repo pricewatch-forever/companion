@@ -71,6 +71,11 @@ type Runner struct {
 	Out io.Writer
 	// Notify, if set, is told what happens as it happens, for the menu.
 	Notify func(Event)
+	// UploadOnly is for a second copy of the Companion, uploading to another
+	// server: it uploads but never writes the data addon, which stays the
+	// first copy's to write. The addon drops what the first copy has
+	// uploaded, so this copy can miss records.
+	UploadOnly bool
 }
 
 // Event is something that happened while uploading.
@@ -304,15 +309,21 @@ func (s *session) unlink() error {
 	if err != nil {
 		return err
 	}
-	if _, err := addon.Write(s.Game, addon.State{Linked: false}); err != nil {
-		s.Say("Can't write the data addon: %v", err)
+	if !s.UploadOnly {
+		if _, err := addon.Write(s.Game, addon.State{Linked: false}); err != nil {
+			s.Say("Can't write the data addon: %v", err)
+		}
 	}
 	s.Say("This computer was unlinked on the website, so uploads have stopped. Run `companion link` to link it again.")
 	return ErrUnlinked
 }
 
 // writeAddon tells the addon the Companion is linked, and up to when.
+// Upload only, it does nothing.
 func (s *session) writeAddon() error {
+	if s.UploadOnly {
+		return nil
+	}
 	created, err := addon.Write(s.Game, addon.State{Linked: true, UploadedUpTo: s.smallestTime()})
 	if err != nil {
 		return err

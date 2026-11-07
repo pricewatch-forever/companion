@@ -55,7 +55,19 @@ The same program also runs in a terminal, sharing the app's settings: linking in
 
 ### Contributing
 
-`go test ./...` runs the tests. To try the Companion against a server of your own, give its address to `link` (or `app`) with `--server`; it then uploads there. `go generate ./internal/icon` draws the icons again.
+`go test ./...` runs the tests. To try the Companion against a server of your own, give its address to `link` (or `app`) with `--server`; it then uploads there.
+
+To upload to your server and to PriceWatch Forever at once, keep the app linked to PriceWatch Forever and run a second copy with settings of its own (on macOS, its own `HOME`) and `--upload-only`:
+
+```sh
+mkdir -p ~/.companion-test
+HOME=~/.companion-test ./companion link --server https://your.server
+HOME=~/.companion-test ./companion run --upload-only
+```
+
+The second copy never writes the PriceWatch_Companion addon: the addon throws away what the app has uploaded, and only the app can say what that is. So the second copy can miss records the app has uploaded, never the other way round.
+
+`go generate ./internal/icon` draws the icons again.
 
 ## License
 

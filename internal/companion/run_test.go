@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pricewatch-forever/companion/internal/addon"
 	"github.com/pricewatch-forever/companion/internal/api"
 	"github.com/pricewatch-forever/companion/internal/clocktest"
 	"github.com/pricewatch-forever/companion/internal/companion"
@@ -53,6 +54,8 @@ type harness struct {
 	clock  *clocktest.Clock
 	events chan string
 	out    *safeBuffer
+	// uploadOnly starts the runner as `companion run --upload-only`.
+	uploadOnly bool
 
 	mu      sync.Mutex
 	uploads []upload
@@ -176,6 +179,8 @@ func (h *harness) start() {
 		Clock:  h.clock,
 		Events: h.events,
 		Out:    h.out,
+
+		UploadOnly: h.uploadOnly,
 	}
 	go func() { h.done <- r.Run(ctx) }()
 	h.t.Cleanup(h.stop)
@@ -492,6 +497,64 @@ func TestAnUnlinkedCompanionUploadsNothingAndWritesNoDataAddon(t *testing.T) {
 	}
 }
 
+func TestUploadOnlyUploadsButWritesNoDataAddon(t *testing.T) {
+	h := newHarness(t, "AAA")
+	h.uploadOnly = true
+	h.link()
+	h.start()
+	h.idle()
+	h.expectUploads(1)
+	h.rewrite("AAA", 2)
+	h.clock.Advance(h.idle())
+	h.idle()
+	h.expectUploads(2)
+	if _, err := os.Stat(filepath.Join(h.game, "Interface", "AddOns", "PriceWatch_Companion")); !os.IsNotExist(err) {
+		t.Errorf("data addon written: %v", err)
+	}
+	if strings.Contains(h.out.String(), "restart") {
+		t.Errorf("said the game needs a restart:\n%s", h.out)
+	}
+	c, _ := h.store.Load()
+	if c.LastUpload.IsZero() {
+		t.Error("the upload wasn't saved in the config file")
+	}
+}
+
+// The data addon another copy of the Companion wrote, uploading to another
+// server, is that copy's to change: an upload-only copy leaves it alone,
+// even when it is unlinked.
+func TestUploadOnlyLeavesTheOtherCopysDataAddonAlone(t *testing.T) {
+	const theirs = "PriceWatchCompanion = { linked = true, uploadedUpTo = 1793790000 }\n"
+	h := newHarness(t, "AAA")
+	h.uploadOnly = true
+	if _, err := addon.Write(h.game, addon.State{Linked: true, UploadedUpTo: ptr(1793790000)}); err != nil {
+		t.Fatal(err)
+	}
+	h.answer = func(n int, _ upload) answer {
+		if n == 1 {
+			return answer{200, `{"uploadedUpTo":1793805060}`}
+		}
+		return answer{401, `{"error":"invalid_token"}`}
+	}
+	h.link()
+	h.start()
+	h.idle()
+	h.expectUploads(1)
+	h.expectDataAddon(theirs)
+	h.rewrite("AAA", 2)
+	h.clock.Advance(h.idle())
+	select {
+	case err := <-h.done:
+		h.done <- err
+		if !errors.Is(err, companion.ErrUnlinked) {
+			t.Errorf("stopped with %v, want ErrUnlinked", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still running after a 401")
+	}
+	h.expectDataAddon(theirs)
+}
+
 func TestTwoAccountsTellTheAddonTheSmallerTime(t *testing.T) {
 	h := newHarness(t, "AAA", "BBB")
 	h.answer = func(n int, u upload) answer {
@@ -612,6 +675,8 @@ func TestANewAccountIsUploadedWhenTheGameFirstSavesIt(t *testing.T) {
 		t.Errorf("uploaded %s, want BBB", got)
 	}
 }
+
+func ptr(n int64) *int64 { return &n }
 
 func readJSON(t *testing.T, path string, v any) {
 	t.Helper()
