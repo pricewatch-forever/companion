@@ -60,17 +60,17 @@
         "fields": ["kind", "time", "money (copper on hand after the change)"]
       },
       "loot": {
-        "meaning": "The player took one slot of a loot window: an item, or coin. Slots left in the window aren't recorded; quest items are recorded like any other. A raw event: what it adds up to is worked out on the server.",
+        "meaning": "The player took one slot of a loot window: an item, or coin; or won an item on a Need/Greed roll in a group, which comes when the roll is won, from a window the player may never have opened. Slots left in the window, and rolls lost, aren't recorded; quest items are recorded like any other. A raw event: what it adds up to is worked out on the server.",
         "fields": [
           "kind",
-          "time (when the slot was taken)",
+          "time (when the slot was taken, or the roll won)",
           "map (the uiMapID the player was on, as C_Map.GetBestMapForUnit gives it, so it can be smaller than its stop's zone, e.g. a cave or a dungeon's floor; nil if the client can't say)",
           "x (the player's position across that map in thousandths, a whole number from 0 at its left edge to 1000 at its right, as in the route; nil unless the route is recorded, and inside an instance)",
           "y (as x, down the map: 0 at its top edge, 1000 at its bottom)",
-          "spell (the spell ID of the player's last successful cast before the window opened, e.g. 8613 Skinning, 2575 Mining, 2366 Herb Gathering, 13262 Disenchant, 7620 Fishing, 3365 Opening (a chest); a gathering profession has one spell ID per rank, so a Journeyman skinner's is 8617; nil if there was none since the last window. A cast goes to one window only, so skinning a looted corpse is told apart from looting it)",
+          "spell (the spell ID of the player's last successful cast before the window opened, e.g. 8613 Skinning, 2575 Mining, 2366 Herb Gathering, 13262 Disenchant, 7620 Fishing, 3365 Opening (a chest); a gathering profession has one spell ID per rank, so a Journeyman skinner's is 8617; nil if there was none since the last window, and for an item won on a roll from a window the player never opened. A cast goes to one window only, so skinning a looted corpse is told apart from looting it)",
           "item string (the link's `item:…` part, kept whole, so a Variant's suffix is in it; nil for coin)",
           "quantity (units; copper for coin)",
-          "then three fields per thing the slot was looted from (a corpse, a node or chest, an item; the client's loot sources), as many as there are: its full GUID (so one corpse looted by several players counts once; its first dash-separated field is its kind, e.g. Creature, Vehicle, GameObject or Item, and for a Creature, Vehicle or GameObject its sixth is the NPC or object ID), the quantity looted from it, and for an Item GUID the ID of the item that went in, e.g. disenchanted (an Item GUID doesn't hold it; nil otherwise, or if the client couldn't say). A fishing loot has none"
+          "then three fields per thing the slot was looted from (a corpse, a node or chest, an item; the client's loot sources), as many as there are: its full GUID (so one corpse looted by several players counts once; its first dash-separated field is its kind, e.g. Creature, Vehicle, GameObject or Item, and for a Creature, Vehicle or GameObject its sixth is the NPC or object ID), the quantity looted from it, and for an Item GUID the ID of the item that went in, e.g. disenchanted (an Item GUID doesn't hold it; nil otherwise, or if the client couldn't say). A fishing loot has none, and so does an item won on a roll from a window the player never opened (a rolled item's are those of the window it was rolled from)"
         ]
       },
       "zone": {
@@ -735,6 +735,92 @@
             ["zone", 450, 1429, "Elwynn Forest"],
             ["loot", 521, 1429, null, null, 7620, "item:6291::::::::20", 1],
             ["end", 600, 20, 5515]
+          ]
+        }
+      }
+    },
+    {
+      "name": "items won on a Need/Greed roll in a group: from a corpse the player opened, from one another player opened, and a roll lost",
+      "note": "The events are Forever's, as traced in-game on 2026-11-08 (#97). Session 1793790000-1 starts in The Barrens (map 1413): a zone row 0 s in. `lootRolls` is what GetLootRollItemLink gives for each roll ID. 100 s in a roll starts (START_LOOT_ROLL: roll ID, milliseconds to roll, loot handle) on the Recipe in the Sunscale Scytheclaw's (NPC 3256) corpse, and the player opens that corpse: the window holds the Recipe and 2 Linen Cloth. Taking the Linen clears its slot; clicking the Recipe's starts nothing, as it is rolled for, and the window closes. 114 s in the player's Need closes the roll frame (CANCEL_LOOT_ROLL), and they win it (LOOT_ITEM_ROLL_WON: link, quantity, roll type, roll, upgraded): the Recipe's loot row is the win's, with the corpse it came from as read in the window. 200 s in a roll starts on the Native Vest in a corpse another player opened, so the player never sees its window; they win it 211 s in, and its loot row says nothing of where it came from. 300 s in a roll on Fenrus' Hide starts and ends with someone else winning it: no row. Logout at 1793790600, 600 s in.",
+      "input": {
+        "client": {
+          "name": "Seventh Surname",
+          "realm": "Forever",
+          "realmID": 4372,
+          "class": "ROGUE",
+          "race": "Scourge",
+          "faction": "Horde",
+          "level": 17,
+          "money": 4310,
+          "region": 1,
+          "gameRules": [],
+          "map": { "id": 1413, "name": "The Barrens", "type": 3 },
+          "instance": false,
+          "afk": false
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          {
+            "time": 1793790100,
+            "event": "START_LOOT_ROLL",
+            "args": [1, 60000, 236381698],
+            "client": { "lootRolls": { "1": "|cnIQ2:|Hitem:6661::::::::17:1488:::::::::|h[Recipe: Savory Deviate Delight]|h|r" } }
+          },
+          {
+            "time": 1793790100,
+            "event": "LOOT_READY",
+            "args": [false],
+            "client": {
+              "lootWindow": [
+                { "link": "|cnIQ2:|Hitem:6661::::::::17:1488:::::::::|h[Recipe: Savory Deviate Delight]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-7090-1-4-3256-AE48B29103", 1] },
+                { "link": "|cnIQ1:|Hitem:2589::::::::17:1488:::::::::|h[Linen Cloth]|h|r", "quantity": 2, "lootedFrom": ["Creature-0-7090-1-4-3256-AE48B29103", 2] }
+              ]
+            }
+          },
+          { "time": 1793790100, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790101, "event": "LOOT_SLOT_CLEARED", "args": [2] },
+          { "time": 1793790102, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790114, "event": "CANCEL_LOOT_ROLL", "args": [1] },
+          { "time": 1793790114, "event": "LOOT_ITEM_ROLL_WON", "args": ["|cnIQ2:|Hitem:6661::::::::17:1488:::::::::|h[Recipe: Savory Deviate Delight]|h|r", 1, 1, 62, false] },
+          { "time": 1793790114, "event": "LOOT_ROLLS_COMPLETE", "args": [236381698] },
+          {
+            "time": 1793790200,
+            "event": "START_LOOT_ROLL",
+            "args": [2, 60000, 773255683],
+            "client": { "lootRolls": { "2": "|cnIQ2:|Hitem:14096::::::::17:1488:::1:12744::::::|h[Native Vest of Shadow Protection]|h|r" } }
+          },
+          { "time": 1793790211, "event": "CANCEL_LOOT_ROLL", "args": [2] },
+          { "time": 1793790211, "event": "LOOT_ITEM_ROLL_WON", "args": ["|cnIQ2:|Hitem:14096::::::::17:1488:::1:12744::::::|h[Native Vest of Shadow Protection]|h|r", 1, 2, 96, false] },
+          { "time": 1793790211, "event": "LOOT_ROLLS_COMPLETE", "args": [773255683] },
+          {
+            "time": 1793790300,
+            "event": "START_LOOT_ROLL",
+            "args": [3, 60000, 900000001],
+            "client": { "lootRolls": { "3": "|cnIQ3:|Hitem:6340::::::::17:1488:::::::::|h[Fenrus' Hide]|h|r" } }
+          },
+          { "time": 1793790305, "event": "CANCEL_LOOT_ROLL", "args": [3] },
+          { "time": 1793790305, "event": "LOOT_ROLLS_COMPLETE", "args": [900000001] },
+          { "time": 1793790600, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsSeventh Surname\tsForever\tsROGUE\tsScourge\tsHorde\tn17\tsus\tsnormal\tshorde\tn4310\tn4372\nszone\tn0\tn1413\tsThe Barrens\nsloot\tn101\tn1413\t\t\t\tsitem:2589::::::::17:1488:::::::::\tn2\tsCreature-0-7090-1-4-3256-AE48B29103\tn2\t\nsloot\tn114\tn1413\t\t\t\tsitem:6661::::::::17:1488:::::::::\tn1\tsCreature-0-7090-1-4-3256-AE48B29103\tn1\t\nsloot\tn211\tn1413\t\t\t\tsitem:14096::::::::17:1488:::1:12744::::::\tn1\nsend\tn600\tn17\tn4310"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Seventh Surname", "Forever", "ROGUE", "Scourge", "Horde", 17, "us", "normal", "horde", 4310, 4372],
+            ["zone", 0, 1413, "The Barrens"],
+            ["loot", 101, 1413, null, null, null, "item:2589::::::::17:1488:::::::::", 2, "Creature-0-7090-1-4-3256-AE48B29103", 2, null],
+            ["loot", 114, 1413, null, null, null, "item:6661::::::::17:1488:::::::::", 1, "Creature-0-7090-1-4-3256-AE48B29103", 1, null],
+            ["loot", 211, 1413, null, null, null, "item:14096::::::::17:1488:::1:12744::::::", 1],
+            ["end", 600, 17, 4310]
           ]
         }
       }

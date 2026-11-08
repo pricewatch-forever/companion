@@ -1,6 +1,6 @@
 {
-  "commit": "76d6341bef66083e387947d10a4e54df0507440b",
-  "committed": "2026-11-07T10:01:47+01:00",
+  "commit": "b876e54ade86c6765ef5e2ca961460bee37382dd",
+  "committed": "2026-11-08T19:09:40+01:00",
   "fixtures": [
     "recording-v1.json",
     "saved-variables.json",
