@@ -60,17 +60,28 @@
         "fields": ["kind", "time", "money (copper on hand after the change)"]
       },
       "loot": {
-        "meaning": "The player took one slot of a loot window: an item, or coin; or won an item on a Need/Greed roll in a group, which comes when the roll is won, from a window the player may never have opened. Slots left in the window, and rolls lost, aren't recorded; quest items are recorded like any other. A raw event: what it adds up to is worked out on the server.",
+        "meaning": "The player received loot, as the client's own receipt in chat says: an item (CHAT_MSG_LOOT \"You receive loot: …\") from a slot they took, a Need/Greed roll they won or a master looter's gift, or coin (CHAT_MSG_MONEY \"You loot …\" solo, \"Your share of the loot is …\" in a group, which is the player's share of a pile anyone in the group looted). A slot that leaves the player's window for someone else (given away by the master looter, taken by another player) isn't recorded, nor are slots left in the window and rolls lost; quest items are recorded like any other. A raw event: what it adds up to is worked out on the server.",
         "fields": [
           "kind",
-          "time (when the slot was taken, or the roll won)",
+          "time (when the receipt came)",
           "map (the uiMapID the player was on, as C_Map.GetBestMapForUnit gives it, so it can be smaller than its stop's zone, e.g. a cave or a dungeon's floor; nil if the client can't say)",
           "x (the player's position across that map in thousandths, a whole number from 0 at its left edge to 1000 at its right, as in the route; nil unless the route is recorded, and inside an instance)",
           "y (as x, down the map: 0 at its top edge, 1000 at its bottom)",
-          "spell (the spell ID of the player's last successful cast before the window opened, e.g. 8613 Skinning, 2575 Mining, 2366 Herb Gathering, 13262 Disenchant, 7620 Fishing, 3365 Opening (a chest); a gathering profession has one spell ID per rank, so a Journeyman skinner's is 8617; nil if there was none since the last window, and for an item won on a roll from a window the player never opened. A cast goes to one window only, so skinning a looted corpse is told apart from looting it)",
+          "spell (the spell ID of the player's last successful cast before the window opened, e.g. 8613 Skinning, 2575 Mining, 2366 Herb Gathering, 13262 Disenchant, 7620 Fishing, 3365 Opening (a chest); a gathering profession has one spell ID per rank, so a Journeyman skinner's is 8617; nil if there was none since the last window, and for loot from a window the player never opened. A cast goes to one window only, so skinning a looted corpse is told apart from looting it)",
           "item string (the link's `item:…` part, kept whole, so a Variant's suffix is in it; nil for coin)",
-          "quantity (units; copper for coin)",
-          "then three fields per thing the slot was looted from (a corpse, a node or chest, an item; the client's loot sources), as many as there are: its full GUID (so one corpse looted by several players counts once; its first dash-separated field is its kind, e.g. Creature, Vehicle, GameObject or Item, and for a Creature, Vehicle or GameObject its sixth is the NPC or object ID), the quantity looted from it, and for an Item GUID the ID of the item that went in, e.g. disenchanted (an Item GUID doesn't hold it; nil otherwise, or if the client couldn't say). A fishing loot has none, and so does an item won on a roll from a window the player never opened (a rolled item's are those of the window it was rolled from)"
+          "quantity (units; copper for coin: the player's share in a group, not the whole pile)",
+          "then three fields per thing the slot was looted from (a corpse, a node or chest, an item; the client's loot sources), as many as there are: its full GUID (so one corpse looted by several players counts once; its first dash-separated field is its kind, e.g. Creature, Vehicle, GameObject or Item, and for a Creature, Vehicle or GameObject its sixth is the NPC or object ID), the quantity looted from it, and for an Item GUID the ID of the item that went in, e.g. disenchanted (an Item GUID doesn't hold it; nil otherwise, or if the client couldn't say). A fishing loot has none, and so does loot from a window the player never opened: an item won on a roll on another player's corpse, a master looter's gift, a share of a pile someone else looted (a rolled item's are those of the window it was rolled from, and coin's quantity from its source is the whole pile)"
+        ]
+      },
+      "item": {
+        "meaning": "What the client knows of an Item the Session looted, for one the site's catalog doesn't know (a hotfix can add an Item the client data exports don't detail). Written once per Item per Session, right after the first `loot` row of it the client knows it at (a /reload doesn't write it again), as the client's GetItemInfo gives it by the Item's ID. While the client knows nothing of it yet, no row: a later loot of it tries again. Never for coin.",
+        "fields": [
+          "kind",
+          "time (as its loot row's)",
+          "Item ID",
+          "name (the Item's own, so a Variant's without its Suffix: \"Twin-bladed Axe\", not \"Twin-bladed Axe of the Monkey\"; in the client's language)",
+          "Quality (0 Poor … 5 Legendary, as the client gives it)",
+          "icon (the icon's file ID, as the client gives it; nil if it gives none)"
         ]
       },
       "zone": {
@@ -160,7 +171,7 @@
       "decoded": "A case's `expected.routes` gives each Session's route decoded: each sample as [seconds since the Session started, map, x, y]."
     },
     "size": {
-      "meaning": "Not a rule: how big the recording gets, after 60 days of daily four-hour play with the route on. Spec #44 aimed at about 1 MB; that aim was dropped for this estimate (2.3 to 3.8 MB for busy play), and retention without the Companion, not the format, is the lever if files prove too big. Worked out by hand from rows like this fixture's; KB and MB are 1,000 and 1,000,000 bytes.",
+      "meaning": "Not a rule: how big the recording gets, after 60 days of daily four-hour play with the route on. Spec #44 aimed at about 1 MB; that aim was dropped for this estimate (2.5 to 4.0 MB for busy play), and retention without the Companion, not the format, is the lever if files prove too big. Worked out by hand from rows like this fixture's; KB and MB are 1,000 and 1,000,000 bytes.",
       "assumptions": [
         "One four-hour Session a day for 60 days, with the route on, and no Companion (so nothing is pruned before 60 days).",
         "SavedVariables writes each string with its newlines escaped, so each row costs its length plus 2 bytes.",
@@ -169,14 +180,15 @@
         "The route: at most one sample every 10 seconds, about 6 bytes each, so at most 1,440 a Session (8.6 KB); always moving is the worst case.",
         "The rest of a Session: its start row (111 bytes with a seven-digit balance and a four-digit realm ID), about 18 zone, instance, afk and back rows (about 29 bytes each), 2 reloads (`sreload\\tn7200\\tn1234567` is 22 bytes, so 24 a row), its end (`send\\tn14400\\tn59\\tn1234567` is 24, so 26) and 2 deaths, each with its `alive` (`sdeath\\tn7200\\tn1436\\tn500\\tn250` is 28, so 30; `salive\\tn7200` is 12, so 14): about 0.8 KB.",
         "Money: a money row late in a Session (`smoney\\tn7200\\tn1234567`) is 21 bytes, so 23 a row. One per balance change: each coin slot looted (2 slots in 5, as above, so 192 a Session at 480 slots) and about 60 more a Session (quest rewards, the vendor sales and purchases below, repairs, flights, training, mail money, deposits and outbid refunds), so 252 changes a Session at 480 loot slots, 156 at 240, 108 at 120.",
-        "The Ledger: 10 posts, 10 auction mails, 5 vendor purchases and 20 vendor sales (one row a stack sold, buybacks rare) a day, about 70 bytes a row: 45 rows, 3.2 KB a day. `v1.mails`: about 10 keys of about 100 bytes a day, each kept about a month."
+        "The Ledger: 10 posts, 10 auction mails, 5 vendor purchases and 20 vendor sales (one row a stack sold, buybacks rare) a day, about 70 bytes a row: 45 rows, 3.2 KB a day. `v1.mails`: about 10 keys of about 100 bytes a day, each kept about a month.",
+        "Items: an `item` row (`sitem\\tn7200\\tn2589\\tsLinen Cloth\\tn1\\tn132889`, 41 bytes, so 43 a row; about 50 with a longer name) for each Item looted in a Session, about 60 different ones in a busy one: 3 KB a Session."
       ],
       "estimate": [
         "Loot: 480 × 92 bytes = 44 KB a Session, 2.65 MB in 60 days (1.32 MB at 240 slots a Session, 0.66 MB at 120).",
         "The route: at most 8.6 KB a Session, 0.52 MB in 60 days.",
         "Money: 252 × 23 bytes = 5.8 KB a Session, 0.35 MB in 60 days (0.22 MB at 240 loot slots a Session, 0.15 MB at 120).",
-        "The rest of the Sessions: 0.05 MB. The Ledger: 0.19 MB. `v1.mails`: 0.03 MB.",
-        "In all: about 3.8 MB at 480 loot slots a Session, 2.3 MB at 240, 1.6 MB at 120. About 1 MB holds only at about 20 loot slots a Session or fewer: loot, one raw row per slot with a full GUID, is most of the recording, and the 60 days without the Companion make it big. With the Companion linked, pruning keeps only what it hasn't uploaded yet, so the file stays at a few Sessions."
+        "The rest of the Sessions: 0.05 MB. Items: 0.18 MB. The Ledger: 0.19 MB. `v1.mails`: 0.03 MB.",
+        "In all: about 4.0 MB at 480 loot slots a Session, 2.5 MB at 240, 1.8 MB at 120. About 1 MB holds only at about 20 loot slots a Session or fewer: loot, one raw row per slot with a full GUID, is most of the recording, and the 60 days without the Companion make it big. With the Companion linked, pruning keeps only what it hasn't uploaded yet, so the file stays at a few Sessions."
       ]
     }
   },
@@ -604,7 +616,7 @@
     },
     {
       "name": "loot from a corpse with a slot left behind, a skinning, a herb node, a disenchant and a fishing catch",
-      "note": "Session 1793790000-1 starts in Westfall (map 1436): a zone row 0 s in. `lootWindow` is what the open loot window holds: each slot's item link and quantity, or its coin text (12 Silver 5 Copper is 1205 copper), and what it was looted from (`lootedFrom`) as GetLootSourceInfo gives it (GUID, quantity, ...). The Defias Pillager (NPC 589) window follows a Sinister Strike (1752), so its three taken slots carry 1752; the Rough Stone in slot 3 is left. The Coyote (NPC 833) is skinned (8613), the Peacebloom node (object 1618) gathered (2366). The disenchant (13262) takes Item GUID Item-5250-0-400000000A1B2C3D, which the client says is item 15268. The player enters Elwynn Forest (map 1429) at 1793790450, 450 s in; the fishing catch (7620) there carries its map. The client names the bobber as looted from, but fishing records nothing there. Logout at 1793790600, 600 s in. The character logs in holding 4310 copper (43s 10c), the start row's; the login's own PLAYER_MONEY leaves it so, adding nothing. The coin slot taken 114 s in brings it to 4310 + 1205 = 5515: one money row, and the end row's.",
+      "note": "Session 1793790000-1 starts in Westfall (map 1436): a zone row 0 s in. `lootWindow` is what the open loot window holds: each slot's item link and quantity, or its coin text (12 Silver 5 Copper is 1205 copper), and what it was looted from (`lootedFrom`) as GetLootSourceInfo gives it (GUID, quantity, ...). The Defias Pillager (NPC 589) window follows a Sinister Strike (1752), so its three taken slots carry 1752; the Rough Stone in slot 3 is left. The Coyote (NPC 833) is skinned (8613), the Peacebloom node (object 1618) gathered (2366). The disenchant (13262) takes Item GUID Item-5250-0-400000000A1B2C3D, which the client says is item 15268. The player enters Elwynn Forest (map 1429) at 1793790450, 450 s in; the fishing catch (7620) there carries its map. The client names the bobber as looted from, but fishing records nothing there. `items` is what the client's GetItemInfo knows of each Item by its ID: its name (the Item's own, so the Variant looted 113 s in is the Twin-bladed Axe, without \"of the Monkey\"), Quality and icon file ID. After an Item's first loot row in the Session comes its `item` row, at the same time, and no other. The client knows nothing yet of the Raw Brilliant Smallfish, so it gets none. Logout at 1793790600, 600 s in. The character logs in holding 4310 copper (43s 10c), the start row's; the login's own PLAYER_MONEY leaves it so, adding nothing. Each slot taken is followed by its receipt in chat (CHAT_MSG_LOOT \"You receive loot: …\", with \"x2\" for more than one), which writes its loot row. The coin slot taken 114 s in brings it to 4310 + 1205 = 5515: one money row, and the end row's; its receipt (CHAT_MSG_MONEY \"You loot …\", the lines of the slot's text joined with commas) comes after the window has closed, 115 s in, and writes the coin's loot row.",
       "input": {
         "client": {
           "name": "Fourth Surname",
@@ -619,7 +631,14 @@
           "gameRules": [],
           "map": { "id": 1436, "name": "Westfall", "type": 3 },
           "instance": false,
-          "afk": false
+          "afk": false,
+          "items": {
+            "2589": { "name": "Linen Cloth", "quality": 1, "icon": 132889 },
+            "15268": { "name": "Twin-bladed Axe", "quality": 2, "icon": 132400 },
+            "2318": { "name": "Light Leather", "quality": 1, "icon": 134252 },
+            "2447": { "name": "Peacebloom", "quality": 1, "icon": 133939 },
+            "10940": { "name": "Strange Dust", "quality": 1, "icon": 132858 }
+          }
         },
         "events": [
           { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
@@ -640,10 +659,13 @@
           },
           { "time": 1793790110, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790112, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790112, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:2589::::::::20|h[Linen Cloth]|h|rx2."] },
           { "time": 1793790113, "event": "LOOT_SLOT_CLEARED", "args": [2] },
+          { "time": 1793790113, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cff1eff00|Hitem:15268::::::1192::20|h[Twin-bladed Axe of the Monkey]|h|r."] },
           { "time": 1793790114, "event": "LOOT_SLOT_CLEARED", "args": [4] },
           { "time": 1793790114, "event": "PLAYER_MONEY", "args": [], "client": { "money": 5515 } },
           { "time": 1793790115, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790115, "event": "CHAT_MSG_MONEY", "args": ["You loot 12 Silver, 5 Copper"] },
           { "time": 1793790200, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-8613-0000ABCDF0", 8613] },
           {
             "time": 1793790201,
@@ -657,6 +679,7 @@
           },
           { "time": 1793790201, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790202, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790202, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:2318::::::::20|h[Light Leather]|h|r."] },
           { "time": 1793790202, "event": "LOOT_CLOSED", "args": [] },
           { "time": 1793790300, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-2366-0000ABCDF1", 2366] },
           {
@@ -671,6 +694,7 @@
           },
           { "time": 1793790302, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790303, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790303, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:2447::::::::20|h[Peacebloom]|h|rx2."] },
           { "time": 1793790303, "event": "LOOT_CLOSED", "args": [] },
           { "time": 1793790400, "event": "UNIT_SPELLCAST_SUCCEEDED", "args": ["player", "Cast-3-5250-0-12-13262-0000ABCDF2", 13262] },
           {
@@ -686,6 +710,7 @@
           },
           { "time": 1793790401, "event": "LOOT_OPENED", "args": [false, true] },
           { "time": 1793790402, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790402, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:10940::::::::20|h[Strange Dust]|h|rx2."] },
           { "time": 1793790402, "event": "LOOT_CLOSED", "args": [] },
           {
             "time": 1793790450,
@@ -707,6 +732,7 @@
           },
           { "time": 1793790520, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790521, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790521, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:6291::::::::20|h[Raw Brilliant Smallfish]|h|r."] },
           { "time": 1793790521, "event": "LOOT_CLOSED", "args": [] },
           { "time": 1793790600, "event": "PLAYER_LOGOUT", "args": [] }
         ]
@@ -717,7 +743,7 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\tn4372\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsloot\tn114\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsmoney\tn114\tn5515\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\tn4372\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsitem\tn112\tn2589\tsLinen Cloth\tn1\tn132889\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsitem\tn113\tn15268\tsTwin-bladed Axe\tn2\tn132400\nsmoney\tn114\tn5515\nsloot\tn115\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsitem\tn202\tn2318\tsLight Leather\tn1\tn134252\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsitem\tn303\tn2447\tsPeacebloom\tn1\tn133939\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nsitem\tn402\tn10940\tsStrange Dust\tn1\tn132858\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
             }
           }
         },
@@ -726,12 +752,17 @@
             ["start", 0, 1793790000, "Fourth Surname", "Forever", "ROGUE", "Dwarf", "Alliance", 20, "us", "normal", "alliance", 4310, 4372],
             ["zone", 0, 1436, "Westfall"],
             ["loot", 112, 1436, null, null, 1752, "item:2589::::::::20", 2, "Creature-0-5250-0-12-589-00004F2A3B", 2, null],
+            ["item", 112, 2589, "Linen Cloth", 1, 132889],
             ["loot", 113, 1436, null, null, 1752, "item:15268::::::1192::20", 1, "Creature-0-5250-0-12-589-00004F2A3B", 1, null],
-            ["loot", 114, 1436, null, null, 1752, null, 1205, "Creature-0-5250-0-12-589-00004F2A3B", 1205, null],
+            ["item", 113, 15268, "Twin-bladed Axe", 2, 132400],
             ["money", 114, 5515],
+            ["loot", 115, 1436, null, null, 1752, null, 1205, "Creature-0-5250-0-12-589-00004F2A3B", 1205, null],
             ["loot", 202, 1436, null, null, 8613, "item:2318::::::::20", 1, "Creature-0-5250-0-12-833-00004F2A42", 1, null],
+            ["item", 202, 2318, "Light Leather", 1, 134252],
             ["loot", 303, 1436, null, null, 2366, "item:2447::::::::20", 2, "GameObject-0-5250-0-12-1618-00004F2A43", 2, null],
+            ["item", 303, 2447, "Peacebloom", 1, 133939],
             ["loot", 402, 1436, null, null, 13262, "item:10940::::::::20", 2, "Item-5250-0-400000000A1B2C3D", 2, 15268],
+            ["item", 402, 10940, "Strange Dust", 1, 132858],
             ["zone", 450, 1429, "Elwynn Forest"],
             ["loot", 521, 1429, null, null, 7620, "item:6291::::::::20", 1],
             ["end", 600, 20, 5515]
@@ -741,7 +772,7 @@
     },
     {
       "name": "items won on a Need/Greed roll in a group: from a corpse the player opened, from one another player opened, and a roll lost",
-      "note": "The events are Forever's, as traced in-game on 2026-11-08 (#97). Session 1793790000-1 starts in The Barrens (map 1413): a zone row 0 s in. `lootRolls` is what GetLootRollItemLink gives for each roll ID. 100 s in a roll starts (START_LOOT_ROLL: roll ID, milliseconds to roll, loot handle) on the Recipe in the Sunscale Scytheclaw's (NPC 3256) corpse, and the player opens that corpse: the window holds the Recipe and 2 Linen Cloth. Taking the Linen clears its slot; clicking the Recipe's starts nothing, as it is rolled for, and the window closes. 114 s in the player's Need closes the roll frame (CANCEL_LOOT_ROLL), and they win it (LOOT_ITEM_ROLL_WON: link, quantity, roll type, roll, upgraded): the Recipe's loot row is the win's, with the corpse it came from as read in the window. 200 s in a roll starts on the Native Vest in a corpse another player opened, so the player never sees its window; they win it 211 s in, and its loot row says nothing of where it came from. 300 s in a roll on Fenrus' Hide starts and ends with someone else winning it: no row. Logout at 1793790600, 600 s in.",
+      "note": "The events are Forever's, as traced in-game on 2026-11-08 (#97). Session 1793790000-1 starts in The Barrens (map 1413): a zone row 0 s in. `lootRolls` is what GetLootRollItemLink gives for each roll ID. 100 s in a roll starts (START_LOOT_ROLL: roll ID, milliseconds to roll, loot handle) on the Recipe in the Sunscale Scytheclaw's (NPC 3256) corpse, and the player opens that corpse: the window holds the Recipe and 2 Linen Cloth. Taking the Linen clears its slot; clicking the Recipe's starts nothing, as it is rolled for, and the window closes. 114 s in the player's Need closes the roll frame (CANCEL_LOOT_ROLL), and they win it (LOOT_ITEM_ROLL_WON: link, quantity, roll type, roll, upgraded): the Recipe's loot row is written by its receipt (CHAT_MSG_LOOT \"You receive loot: …\"), which follows the win, with the corpse it came from as read in the window. 200 s in a roll starts on the Native Vest in a corpse another player opened, so the player never sees its window; they win it 211 s in, and its loot row says nothing of where it came from. 300 s in a roll on Fenrus' Hide starts and ends with someone else winning it: no row. Logout at 1793790600, 600 s in.",
       "input": {
         "client": {
           "name": "Seventh Surname",
@@ -779,10 +810,12 @@
           },
           { "time": 1793790100, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790101, "event": "LOOT_SLOT_CLEARED", "args": [2] },
+          { "time": 1793790101, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cnIQ1:|Hitem:2589::::::::17:1488:::::::::|h[Linen Cloth]|h|rx2."] },
           { "time": 1793790102, "event": "LOOT_CLOSED", "args": [] },
           { "time": 1793790114, "event": "CANCEL_LOOT_ROLL", "args": [1] },
           { "time": 1793790114, "event": "LOOT_ITEM_ROLL_WON", "args": ["|cnIQ2:|Hitem:6661::::::::17:1488:::::::::|h[Recipe: Savory Deviate Delight]|h|r", 1, 1, 62, false] },
           { "time": 1793790114, "event": "LOOT_ROLLS_COMPLETE", "args": [236381698] },
+          { "time": 1793790114, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cnIQ2:|Hitem:6661::::::::17:1488:::::::::|h[Recipe: Savory Deviate Delight]|h|r."] },
           {
             "time": 1793790200,
             "event": "START_LOOT_ROLL",
@@ -792,6 +825,7 @@
           { "time": 1793790211, "event": "CANCEL_LOOT_ROLL", "args": [2] },
           { "time": 1793790211, "event": "LOOT_ITEM_ROLL_WON", "args": ["|cnIQ2:|Hitem:14096::::::::17:1488:::1:12744::::::|h[Native Vest of Shadow Protection]|h|r", 1, 2, 96, false] },
           { "time": 1793790211, "event": "LOOT_ROLLS_COMPLETE", "args": [773255683] },
+          { "time": 1793790211, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cnIQ2:|Hitem:14096::::::::17:1488:::1:12744::::::|h[Native Vest of Shadow Protection]|h|r."] },
           {
             "time": 1793790300,
             "event": "START_LOOT_ROLL",
@@ -821,6 +855,78 @@
             ["loot", 114, 1413, null, null, null, "item:6661::::::::17:1488:::::::::", 1, "Creature-0-7090-1-4-3256-AE48B29103", 1, null],
             ["loot", 211, 1413, null, null, null, "item:14096::::::::17:1488:::1:12744::::::", 1],
             ["end", 600, 17, 4310]
+          ]
+        }
+      }
+    },
+    {
+      "name": "loot in a group under Master Looter: an item given to another player, one given to the player, one given after a roll with no winner, and coin shares of the player's pile and another's",
+      "note": "The events are Forever's, as traced in-game on 2026-11-08 (#98): a duo with Koos Kaakloos under Master Looter, the player the master looter until 200 s in. Session 1793790000-1 starts in Silverpine Forest (map 1421): a zone row 0 s in, holding 4310 copper. Every loot row is written by the client's receipt in chat: CHAT_MSG_LOOT \"You receive loot: …\" for an item, CHAT_MSG_MONEY \"Your share of the loot is …\" for coin in a group. 100 s in the player opens a Worg's (NPC 1765) corpse: Raider's Cloak of Arcane Wrath and a 25 Copper coin slot. They give the Cloak to Koos (GiveMasterLoot): its slot clears in their window, twice, as every slot does, but the receipt is Koos's (\"Koos Kaakloos receives loot: …\"), so no row. Taking the coin slot raises the balance by 13, not 25 (one money row): the pile is split, and the player's share, 13, is the coin's loot row, with the corpse and the whole pile from it as read in the window. 200 s in Koos, now the master looter, gives the player a Heavy Shortbow: a receipt with no window and no roll, recorded from nowhere. 300 s in the player opens a Mottled Worg's (NPC 1766) corpse on a Battle Chain Tunic, and a 3-minute roll on it starts (Master Looter rolls too); both pick Greed, and the roll ends with no winner 330 s in (LOOT_ROLLS_COMPLETE, no LOOT_ITEM_ROLL_WON). The player then gives it to themselves: its slot clears, and its receipt writes its row with the corpse it came from. 400 s in Koos loots a pile: the balance rises by 12 with no window, and the share's receipt writes a coin row from nowhere. Logout at 1793790600, 600 s in.",
+      "input": {
+        "client": {
+          "name": "Eighth Surname",
+          "realm": "Forever",
+          "realmID": 4372,
+          "class": "WARRIOR",
+          "race": "Human",
+          "faction": "Alliance",
+          "level": 17,
+          "money": 4310,
+          "region": 1,
+          "gameRules": [],
+          "map": { "id": 1421, "name": "Silverpine Forest", "type": 3 },
+          "instance": false,
+          "afk": false
+        },
+        "events": [
+          { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
+          { "time": 1793790000, "event": "PLAYER_MONEY", "args": [] },
+          { "time": 1793790100, "event": "LOOT_READY", "args": [false], "client": { "lootWindow": [{ "link": "|cnIQ2:|Hitem:9786::::::::17:1488:::1:12756::::::|h[Raider's Cloak of Arcane Wrath]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-5250-0-12-1765-00004F2A60", 1] }, { "coin": "25 Copper", "lootedFrom": ["Creature-0-5250-0-12-1765-00004F2A60", 25] }] } },
+          { "time": 1793790100, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790102, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790102, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790103, "event": "LOOT_SLOT_CLEARED", "args": [2] },
+          { "time": 1793790103, "event": "LOOT_SLOT_CLEARED", "args": [2] },
+          { "time": 1793790103, "event": "PLAYER_MONEY", "args": [], "client": { "money": 4323} },
+          { "time": 1793790104, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790104, "event": "CHAT_MSG_LOOT", "args": ["Koos Kaakloos receives loot: |cnIQ2:|Hitem:9786::::::::17:1488:::1:12756::::::|h[Raider's Cloak of Arcane Wrath]|h|r."] },
+          { "time": 1793790104, "event": "CHAT_MSG_MONEY", "args": ["Your share of the loot is 13 Copper."] },
+          { "time": 1793790200, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cnIQ2:|Hitem:3036::::::::17:1488:::::::::|h[Heavy Shortbow]|h|r."] },
+          { "time": 1793790300, "event": "LOOT_READY", "args": [false], "client": { "lootWindow": [{ "link": "|cnIQ2:|Hitem:3283::::::::17:1488:::::::::|h[Battle Chain Tunic]|h|r", "quantity": 1, "lootedFrom": ["Creature-0-5250-0-12-1766-00004F2A61", 1] }] } },
+          { "time": 1793790300, "event": "LOOT_OPENED", "args": [false, false] },
+          { "time": 1793790300, "event": "START_LOOT_ROLL", "args": [1, 180000, 236390001], "client": { "lootRolls": { "1": "|cnIQ2:|Hitem:3283::::::::17:1488:::::::::|h[Battle Chain Tunic]|h|r"  } } },
+          { "time": 1793790305, "event": "CANCEL_LOOT_ROLL", "args": [1] },
+          { "time": 1793790330, "event": "LOOT_ROLLS_COMPLETE", "args": [236390001] },
+          { "time": 1793790335, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790335, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790335, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cnIQ2:|Hitem:3283::::::::17:1488:::::::::|h[Battle Chain Tunic]|h|r."] },
+          { "time": 1793790336, "event": "LOOT_CLOSED", "args": [] },
+          { "time": 1793790400, "event": "PLAYER_MONEY", "args": [], "client": { "money": 4335} },
+          { "time": 1793790401, "event": "CHAT_MSG_MONEY", "args": ["Your share of the loot is 12 Copper."] },
+          { "time": 1793790600, "event": "PLAYER_LOGOUT", "args": [] }
+        ]
+      },
+      "expected": {
+        "recording": {
+          "count": 1,
+          "v1": {
+            "current": "1793790000-1",
+            "sessions": {
+              "1793790000-1": "sstart\tn0\tn1793790000\tsEighth Surname\tsForever\tsWARRIOR\tsHuman\tsAlliance\tn17\tsus\tsnormal\tsalliance\tn4310\tn4372\nszone\tn0\tn1421\tsSilverpine Forest\nsmoney\tn103\tn4323\nsloot\tn104\tn1421\t\t\t\t\tn13\tsCreature-0-5250-0-12-1765-00004F2A60\tn25\t\nsloot\tn200\tn1421\t\t\t\tsitem:3036::::::::17:1488:::::::::\tn1\nsloot\tn335\tn1421\t\t\t\tsitem:3283::::::::17:1488:::::::::\tn1\tsCreature-0-5250-0-12-1766-00004F2A61\tn1\t\nsmoney\tn400\tn4335\nsloot\tn401\tn1421\t\t\t\t\tn12\nsend\tn600\tn17\tn4335"
+            }
+          }
+        },
+        "sessions": {
+          "1793790000-1": [
+            ["start", 0, 1793790000, "Eighth Surname", "Forever", "WARRIOR", "Human", "Alliance", 17, "us", "normal", "alliance", 4310, 4372],
+            ["zone", 0, 1421, "Silverpine Forest"],
+            ["money", 103, 4323],
+            ["loot", 104, 1421, null, null, null, null, 13, "Creature-0-5250-0-12-1765-00004F2A60", 25, null],
+            ["loot", 200, 1421, null, null, null, "item:3036::::::::17:1488:::::::::", 1],
+            ["loot", 335, 1421, null, null, null, "item:3283::::::::17:1488:::::::::", 1, "Creature-0-5250-0-12-1766-00004F2A61", 1, null],
+            ["money", 400, 4335],
+            ["loot", 401, 1421, null, null, null, null, 12],
+            ["end", 600, 17, 4335]
           ]
         }
       }
@@ -1060,6 +1166,7 @@
           },
           { "time": 1793790025, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790026, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790026, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:2589::::::::30|h[Linen Cloth]|h|rx2."] },
           { "time": 1793790026, "event": "LOOT_CLOSED", "args": [] },
           { "time": 1793790030, "timer": true },
           {
@@ -1085,6 +1192,7 @@
           },
           { "time": 1793790055, "event": "LOOT_OPENED", "args": [false, false] },
           { "time": 1793790056, "event": "LOOT_SLOT_CLEARED", "args": [1] },
+          { "time": 1793790056, "event": "CHAT_MSG_LOOT", "args": ["You receive loot: |cffffffff|Hitem:2589::::::::30|h[Linen Cloth]|h|r."] },
           { "time": 1793790056, "event": "LOOT_CLOSED", "args": [] },
           { "time": 1793790060, "event": "PLAYER_LOGOUT", "args": [] },
           { "time": 1793790060, "event": "PLAYER_ENTERING_WORLD", "args": [false, true] },
