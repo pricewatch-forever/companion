@@ -20,6 +20,26 @@ The Companion is open source so you can check exactly what it does:
 - **It sends your sessions to your PriceWatch Forever account only.** They're private to you and kept until you delete them. When linking, it also sends your computer's name, so the website can show you which computer is linked, and with each request its own version number.
 - **It never talks to Blizzard** and holds no Blizzard keys.
 
+## Why macOS blocks the download
+
+There is no download yet (see Status above). This is how it will work when there is one.
+
+**The Mac app isn't registered with Apple.** Registering means joining Apple's Developer Program, which costs $99 a year. PriceWatch Forever is free, so we're waiting to see how many players use the Companion before paying for it. Until then, macOS doesn't know who made the app, and treats it as it treats any app from someone it doesn't know.
+
+**So macOS blocks it the first time you open it.** It says it can't check the app for malware, and offers only to close the message or move the app to the Trash. That message is expected, and it says nothing about what the app does: it is what macOS says about every app that isn't registered.
+
+**To allow it, once:**
+
+1. Open the app, and close the message with "Done".
+2. Open System Settings, go to Privacy & Security, and scroll down to Security.
+3. Next to the line about PriceWatch Companion, choose "Open Anyway", and confirm with your password or Touch ID.
+
+After that it opens like any other app.
+
+**What registering would change:** Apple would scan each version for known malware and vouch for who made it, and the app would open without these steps. The app itself would be the same.
+
+**If you'd rather not take our word for it, build the app yourself.** All of the Companion's code is in this repository, and [Build and run](#build-and-run) below turns it into the app on your own Mac with three commands. Then you know the app you run is made from the code you can read, and nothing else. macOS doesn't block an app your own Mac built, so the steps above aren't needed either.
+
 ## Build and run
 
 You need a Mac, [Go](https://go.dev/dl/) 1.24 or later, and Xcode's command line tools (`xcode-select --install` in a terminal installs them).
