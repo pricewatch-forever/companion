@@ -53,7 +53,7 @@
       },
       "end": {
         "meaning": "The player logged out, or switched to another character.",
-        "fields": ["kind", "time", "level", "money (copper on hand, as in `start`; when the client's GetMoney gives 0 at logout, as Forever's does on a logout to character select, the Session's last recorded balance, as its latest `start`, `reload` or `money` row holds it)"]
+        "fields": ["kind", "time", "level (the character's at logout: the client's UnitLevel, or the level its last PLAYER_LEVEL_UP since the interface loaded gave, when that is higher, as Forever's UnitLevel still gives the level the interface loaded at while the client logs out)", "money (copper on hand, as in `start`; when the client's GetMoney gives 0 at logout, as Forever's does on a logout to character select, the Session's last recorded balance, as its latest `start`, `reload` or `money` row holds it)"]
       },
       "money": {
         "meaning": "The character's copper on hand changed (the client's PLAYER_MONEY): written only when it differs from the Session's last recorded balance (in its `start`, `reload` or last `money` row), so the client's own PLAYER_MONEY at a login or /reload adds none. With `start`, `reload` and `end`, it lets a Session's gold be rebuilt: quest gold, vendor sales, repairs, flights, training, mail money and outbid refunds show only here. A raw event: what each change was for is worked out on the server, from the loot, purchase, sale and vendor rows around it. Never written without GetMoney.",
@@ -195,7 +195,7 @@
   "cases": [
     {
       "name": "a Session through /reload to logout, then a switch to another character",
-      "note": "Session 1 starts at 1793790000 (2026-11-04T11:00:00Z), the account's first, so its ID is 1793790000-1. The /reload's logout at 1793791800 is 1800 s in; the reload turns that provisional end into a reload row. Logout at 1793804400 is 14400 s in, after a level up to 59. The switch's login at 1793804460 starts Session 2, 1793804460-2, which logs out at 1793808060, 3600 s in. PvP Ruleset in EU (region 3); the House is the character's faction's. First Surname holds 1234567 copper (123g 45s 67c) throughout, so its start, reload and end rows end with it; Second Surname holds 2500000 (250g).",
+      "note": "Session 1 starts at 1793790000 (2026-11-04T11:00:00Z), the account's first, so its ID is 1793790000-1. The /reload's logout at 1793791800 is 1800 s in; the reload turns that provisional end into a reload row. Logout at 1793804400 is 14400 s in, after a level up to 59 at 1793800800: the client's UnitLevel still gives 58 at that logout, as Forever's does, so the end row's level is PLAYER_LEVEL_UP's. The switch's login at 1793804460 starts Session 2, 1793804460-2, which logs out at 1793808060, 3600 s in. PvP Ruleset in EU (region 3); the House is the character's faction's. First Surname holds 1234567 copper (123g 45s 67c) throughout, so its start, reload and end rows end with it; Second Surname holds 2500000 (250g).",
       "input": {
         "client": {
           "name": "First Surname",
@@ -213,7 +213,8 @@
           { "time": 1793790000, "event": "PLAYER_ENTERING_WORLD", "args": [true, false] },
           { "time": 1793791800, "event": "PLAYER_LOGOUT", "args": [] },
           { "time": 1793791830, "event": "PLAYER_ENTERING_WORLD", "args": [false, true] },
-          { "time": 1793804400, "event": "PLAYER_LOGOUT", "args": [], "client": { "level": 59 } },
+          { "time": 1793800800, "event": "PLAYER_LEVEL_UP", "args": [59] },
+          { "time": 1793804400, "event": "PLAYER_LOGOUT", "args": [] },
           {
             "time": 1793804460,
             "event": "PLAYER_ENTERING_WORLD",
