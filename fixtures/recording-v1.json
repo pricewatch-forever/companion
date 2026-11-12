@@ -74,14 +74,16 @@
         ]
       },
       "item": {
-        "meaning": "What the client knows of an Item the Session looted, for one the site's catalog doesn't know (a hotfix can add an Item the client data exports don't detail). Written once per Item per Session, right after the first `loot` row of it the client knows it at (a /reload doesn't write it again), as the client's GetItemInfo gives it by the Item's ID. While the client knows nothing of it yet, no row: a later loot of it tries again. Never for coin.",
+        "meaning": "What the client knows of an Item the Session looted, for one the site's catalog doesn't know (a hotfix can add an Item the client data exports don't detail): how to show it, and whether it is a quest Item, which is one in the Quest class or with a quest Item's binding. Written once per Item per Session, right after the first `loot` row of it the client knows it at (a /reload doesn't write it again), as the client's GetItemInfo gives it by the Item's ID. While the client knows nothing of it yet, no row: a later loot of it tries again. Never for coin.",
         "fields": [
           "kind",
           "time (as its loot row's)",
           "Item ID",
           "name (the Item's own, so a Variant's without its Suffix: \"Twin-bladed Axe\", not \"Twin-bladed Axe of the Monkey\"; in the client's language)",
           "Quality (0 Poor … 5 Legendary, as the client gives it)",
-          "icon (the icon's file ID, as the client gives it; nil if it gives none)"
+          "icon (the icon's file ID, as the client gives it; nil if it gives none)",
+          "Item class (the client's class ID: 12 is Quest; nil if it gives none)",
+          "binding (the client's bind type: 0 none, 1 on pickup, 2 on equip, 3 on use, 4 a quest Item's; nil if it gives none)"
         ]
       },
       "zone": {
@@ -135,7 +137,7 @@
         "fields": ["kind", "server time (when the client confirmed the post)", "item string (the link's `item:…` part, verbatim, so a Variant keeps its suffix or bonus IDs)", "quantity per stack", "stack count (1 for a commodity post; for an item post, its quantity, each item its own Listing)", "bid per stack, in copper (nil: none, as for a commodity)", "buyout per stack, in copper (nil or 0: none; for a commodity, its unit price × its quantity)", "duration in hours: 12, 24 or 48", "deposit for the whole post, in copper", "House it was posted at, as the addon's tooltip tells it when the client confirms the post: `neutral` in a zone whose auctioneer is a Neutral one (Booty Bay, Gadgetzan, Everlook), else the character's faction's, `alliance` or `horde` (unlike a Session's `start` row, which is never Neutral); nil when the Market couldn't be told"]
       },
       "bought": {
-        "meaning": "A Ledger row: an AH purchase, bought out or won with a bid, from the buyer invoice (\"Auction won\") of the mail that brings the item. The seller is never recorded.",
+        "meaning": "A Ledger row: an AH purchase, bought out or won with a bid, from the buyer invoice (\"Auction won\") of the mail that brings the item. The seller is never recorded, nor the House: the invoice names none, so a purchase at a Neutral auctioneer reads as one at the character's faction's House (#102).",
         "fields": ["kind", "server time (when the mailbox first showed the mail)", "expiry", "item string (the attachment's link from `item:`, without its name, so a Variant keeps its suffix or bonus IDs)", "quantity (the attachment's count)", "price paid, in copper (the invoice's bid: the buyout, or the winning bid)", "buyout, in copper (the invoice's; equal to the price paid when bought out)"]
       },
       "vendorBought": {
@@ -634,11 +636,11 @@
           "instance": false,
           "afk": false,
           "items": {
-            "2589": { "name": "Linen Cloth", "quality": 1, "icon": 132889 },
-            "15268": { "name": "Twin-bladed Axe", "quality": 2, "icon": 132400 },
-            "2318": { "name": "Light Leather", "quality": 1, "icon": 134252 },
-            "2447": { "name": "Peacebloom", "quality": 1, "icon": 133939 },
-            "10940": { "name": "Strange Dust", "quality": 1, "icon": 132858 }
+            "2589": { "name": "Linen Cloth", "quality": 1, "icon": 132889, "classId": 7, "bind": 0 },
+            "15268": { "name": "Twin-bladed Axe", "quality": 2, "icon": 132400, "classId": 2, "bind": 2 },
+            "2318": { "name": "Light Leather", "quality": 1, "icon": 134252, "classId": 7, "bind": 0 },
+            "2447": { "name": "Peacebloom", "quality": 1, "icon": 133939, "classId": 7, "bind": 0 },
+            "10940": { "name": "Strange Dust", "quality": 1, "icon": 132858, "classId": 7, "bind": 0 }
           }
         },
         "events": [
@@ -744,7 +746,7 @@
           "v1": {
             "current": "1793790000-1",
             "sessions": {
-              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\tn4372\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsitem\tn112\tn2589\tsLinen Cloth\tn1\tn132889\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsitem\tn113\tn15268\tsTwin-bladed Axe\tn2\tn132400\nsmoney\tn114\tn5515\nsloot\tn115\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsitem\tn202\tn2318\tsLight Leather\tn1\tn134252\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsitem\tn303\tn2447\tsPeacebloom\tn1\tn133939\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nsitem\tn402\tn10940\tsStrange Dust\tn1\tn132858\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
+              "1793790000-1": "sstart\tn0\tn1793790000\tsFourth Surname\tsForever\tsROGUE\tsDwarf\tsAlliance\tn20\tsus\tsnormal\tsalliance\tn4310\tn4372\nszone\tn0\tn1436\tsWestfall\nsloot\tn112\tn1436\t\t\tn1752\tsitem:2589::::::::20\tn2\tsCreature-0-5250-0-12-589-00004F2A3B\tn2\t\nsitem\tn112\tn2589\tsLinen Cloth\tn1\tn132889\tn7\tn0\nsloot\tn113\tn1436\t\t\tn1752\tsitem:15268::::::1192::20\tn1\tsCreature-0-5250-0-12-589-00004F2A3B\tn1\t\nsitem\tn113\tn15268\tsTwin-bladed Axe\tn2\tn132400\tn2\tn2\nsmoney\tn114\tn5515\nsloot\tn115\tn1436\t\t\tn1752\t\tn1205\tsCreature-0-5250-0-12-589-00004F2A3B\tn1205\t\nsloot\tn202\tn1436\t\t\tn8613\tsitem:2318::::::::20\tn1\tsCreature-0-5250-0-12-833-00004F2A42\tn1\t\nsitem\tn202\tn2318\tsLight Leather\tn1\tn134252\tn7\tn0\nsloot\tn303\tn1436\t\t\tn2366\tsitem:2447::::::::20\tn2\tsGameObject-0-5250-0-12-1618-00004F2A43\tn2\t\nsitem\tn303\tn2447\tsPeacebloom\tn1\tn133939\tn7\tn0\nsloot\tn402\tn1436\t\t\tn13262\tsitem:10940::::::::20\tn2\tsItem-5250-0-400000000A1B2C3D\tn2\tn15268\nsitem\tn402\tn10940\tsStrange Dust\tn1\tn132858\tn7\tn0\nszone\tn450\tn1429\tsElwynn Forest\nsloot\tn521\tn1429\t\t\tn7620\tsitem:6291::::::::20\tn1\nsend\tn600\tn20\tn5515"
             }
           }
         },
@@ -753,17 +755,17 @@
             ["start", 0, 1793790000, "Fourth Surname", "Forever", "ROGUE", "Dwarf", "Alliance", 20, "us", "normal", "alliance", 4310, 4372],
             ["zone", 0, 1436, "Westfall"],
             ["loot", 112, 1436, null, null, 1752, "item:2589::::::::20", 2, "Creature-0-5250-0-12-589-00004F2A3B", 2, null],
-            ["item", 112, 2589, "Linen Cloth", 1, 132889],
+            ["item", 112, 2589, "Linen Cloth", 1, 132889, 7, 0],
             ["loot", 113, 1436, null, null, 1752, "item:15268::::::1192::20", 1, "Creature-0-5250-0-12-589-00004F2A3B", 1, null],
-            ["item", 113, 15268, "Twin-bladed Axe", 2, 132400],
+            ["item", 113, 15268, "Twin-bladed Axe", 2, 132400, 2, 2],
             ["money", 114, 5515],
             ["loot", 115, 1436, null, null, 1752, null, 1205, "Creature-0-5250-0-12-589-00004F2A3B", 1205, null],
             ["loot", 202, 1436, null, null, 8613, "item:2318::::::::20", 1, "Creature-0-5250-0-12-833-00004F2A42", 1, null],
-            ["item", 202, 2318, "Light Leather", 1, 134252],
+            ["item", 202, 2318, "Light Leather", 1, 134252, 7, 0],
             ["loot", 303, 1436, null, null, 2366, "item:2447::::::::20", 2, "GameObject-0-5250-0-12-1618-00004F2A43", 2, null],
-            ["item", 303, 2447, "Peacebloom", 1, 133939],
+            ["item", 303, 2447, "Peacebloom", 1, 133939, 7, 0],
             ["loot", 402, 1436, null, null, 13262, "item:10940::::::::20", 2, "Item-5250-0-400000000A1B2C3D", 2, 15268],
-            ["item", 402, 10940, "Strange Dust", 1, 132858],
+            ["item", 402, 10940, "Strange Dust", 1, 132858, 7, 0],
             ["zone", 450, 1429, "Elwynn Forest"],
             ["loot", 521, 1429, null, null, 7620, "item:6291::::::::20", 1],
             ["end", 600, 20, 5515]
